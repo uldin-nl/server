@@ -22,6 +22,11 @@ const mainNavItems: NavItem[] = [
         href: dashboard(),
         icon: LayoutGrid,
     },
+    {
+        title: 'Servers',
+        href: '/ploi/servers',
+        icon: Folder,
+    },
 ];
 
 const footerNavItems: NavItem[] = [

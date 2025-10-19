@@ -34,5 +34,9 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
+    'ploi' => [
+        'url' => env('PLOI_API_URL', 'https://ploi.io/api'),
+        'token' => env('PLOI_API_TOKEN'),
+    ],
 
 ];
