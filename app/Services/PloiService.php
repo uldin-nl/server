@@ -60,7 +60,6 @@ class PloiService
             ->json();
     }
 
-    // Ophalen repository info van een site
     public function getRepository($serverId, $siteId)
     {
         return Http::withToken($this->apiToken)
@@ -75,14 +74,13 @@ class PloiService
             ->json();
     }
 
-    // 🔹 Git koppelen aan site - AANGEPAST
     public function connectGit($serverId, $siteId, $data)
     {
         return Http::withToken($this->apiToken)
             ->post("{$this->apiUrl}/servers/{$serverId}/sites/{$siteId}/repository", [
                 'provider' => $data['provider'],
                 'branch' => $data['branch'],
-                'name' => $data['name'], // 'name' in plaats van 'repository'
+                'name' => $data['name'],
             ])
             ->json();
     }
@@ -94,7 +92,6 @@ class PloiService
             ->json();
     }
 
-    // 🔹 .env ophalen
     public function getEnvironment($serverId, $siteId)
     {
         return Http::withToken($this->apiToken)
@@ -102,7 +99,6 @@ class PloiService
             ->json();
     }
 
-    // 🔹 .env updaten
     public function updateEnvironment($serverId, $siteId, $content)
     {
         return Http::withToken($this->apiToken)
@@ -112,15 +108,46 @@ class PloiService
             ->json();
     }
 
-    public function getRepositories($serverId)
+    public function getRepositories($provider = 'github')
     {
-        $response = Http::withToken($this->apiToken)
-            ->get("{$this->apiUrl}/servers/{$serverId}/repositories");
+        $providers = Http::withToken($this->apiToken)
+            ->get("{$this->apiUrl}/user/source-control")
+            ->json();
         
-        \Log::info('Ploi API Status: ' . $response->status());
-        \Log::info('Ploi API Response: ' . $response->body());
+        $githubProviders = collect($providers['data'] ?? [])
+            ->filter(fn($p) => $p['provider'] === $provider);
         
-        return $response->json();
+        if ($githubProviders->isEmpty()) {
+            return ['data' => ['repositories' => []]];
+        }
+        
+        $allRepositories = [];
+        
+        foreach ($githubProviders as $githubProvider) {
+            $response = Http::withToken($this->apiToken)
+                ->get("{$this->apiUrl}/user/source-control/{$githubProvider['id']}/repositories")
+                ->json();
+            
+            $repos = $response['data']['repositories'] ?? [];
+            
+            $repos = array_map(function($repo) use ($githubProvider) {
+                $repo['provider_name'] = $githubProvider['name'];
+                $repo['provider_id'] = $githubProvider['id'];
+                return $repo;
+            }, $repos);
+            
+            $allRepositories = array_merge($allRepositories, $repos);
+        }
+        
+        usort($allRepositories, function($a, $b) {
+            return strcmp($a['label'], $b['label']);
+        });
+        
+        return [
+            'data' => [
+                'repositories' => $allRepositories
+            ]
+        ];
     }
 
     public function installRepository($serverId, $siteId, $repositoryId, $branch = 'main')
@@ -149,7 +176,6 @@ class PloiService
             ->json();
     }
 
-    // 🔹 SSL Certificaten
     public function getCertificates($serverId, $siteId)
     {
         return Http::withToken($this->apiToken)
@@ -178,7 +204,6 @@ class PloiService
             ->json();
     }
 
-    // 🔹 Databases
     public function createDatabase($serverId, array $data)
     {
         return Http::withToken($this->apiToken)

@@ -65,7 +65,6 @@ class PloiController extends Controller
         ]);
     }
 
-    // Toon formulier voor nieuwe site
     public function createSiteForm($serverId)
     {
         return Inertia::render('Ploi/CreateSite', [
@@ -83,24 +82,10 @@ class PloiController extends Controller
         ]);
 
         try {
-            // Genereer random 8-karakter subdomain als geen domain is opgegeven
             $domain = $validated['domain'] ?? strtolower(Str::random(8)) . '.uldin.cloud';
-            
-            // Haal alleen de subdomain naam op (zonder .uldin.cloud)
-            $dbName = str_replace('.uldin.cloud', '', $domain);
-            // Vervang - met _ voor database naam (MySQL staat geen - toe)
-            $dbName = str_replace('-', '_', $dbName);
-            
-            // Genereer veilig wachtwoord
+            $dbName = str_replace(['.uldin.cloud', '-'], ['', '_'], $domain);
             $dbPassword = Str::random(16);
 
-            \Log::info('Creating site', [
-                'domain' => $domain,
-                'db_name' => $dbName,
-                'server_id' => $serverId
-            ]);
-
-            // 1. Maak site aan
             $siteResponse = $this->ploi->createSite($serverId, [
                 'root_domain' => $domain,
                 'web_directory' => $validated['web_directory'],
@@ -118,9 +103,6 @@ class PloiController extends Controller
                 throw new \Exception('Site ID niet gevonden in response');
             }
 
-            \Log::info('Site created', ['site_id' => $siteId]);
-
-            // 2. Maak database aan
             $databaseResponse = $this->ploi->createDatabase($serverId, [
                 'name' => $dbName,
                 'user' => $dbName,
@@ -129,58 +111,45 @@ class PloiController extends Controller
                 'site_id' => $siteId,
             ]);
 
-            if (isset($databaseResponse['error'])) {
-                \Log::error('Database creation failed', ['error' => $databaseResponse['error']]);
-                // Site is al gemaakt, ga door
-            } else {
-                \Log::info('Database created', ['database' => $databaseResponse]);
-            }
-
             return redirect()
                 ->route('ploi.sites.show', ['serverId' => $serverId, 'siteId' => $siteId])
                 ->with('success', "Site {$domain} succesvol aangemaakt met database!");
 
         } catch (\Exception $e) {
-            \Log::error('Site creation failed', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            
             return back()->withErrors(['error' => $e->getMessage()]);
         }
     }
 
-    // Site detail pagina
     public function showSite($serverId, $siteId)
     {
         $site = $this->ploi->getSite($serverId, $siteId);
         $siteData = $site['data'] ?? [];
-        
-        // Voeg server_id toe
         $siteData['server_id'] = $serverId;
         
-        // Als de site een repository heeft, haal deze op
+        $repositories = [];
+        try {
+            $repoResponse = $this->ploi->getRepositories('github');
+            $repositories = $repoResponse['data']['repositories'] ?? [];
+        } catch (\Exception $e) {
+        }
+        
         if (isset($siteData['has_repository']) && $siteData['has_repository'] === true) {
             try {
                 $repoResponse = $this->ploi->getRepository($serverId, $siteId);
                 
                 if (isset($repoResponse['data']['repository'])) {
                     $repo = $repoResponse['data']['repository'];
-                    
                     $siteData['repository'] = ($repo['user'] ?? '') . '/' . ($repo['name'] ?? '');
                     $siteData['branch'] = $repo['branch'] ?? null;
                     $siteData['repository_provider'] = $repo['provider'] ?? null;
                 }
             } catch (\Exception $e) {
-                \Log::error('Failed to fetch repository', ['error' => $e->getMessage()]);
             }
             
-            // Haal .env op
             try {
                 $envResponse = $this->ploi->getEnvironment($serverId, $siteId);
                 $siteData['env_content'] = $envResponse['data'] ?? '';
             } catch (\Exception $e) {
-                \Log::error('Failed to fetch environment', ['error' => $e->getMessage()]);
                 $siteData['env_content'] = '';
             }
         } else {
@@ -189,42 +158,32 @@ class PloiController extends Controller
             $siteData['env_content'] = '';
         }
         
-        // Haal SSL certificaten op
         try {
             $certificatesResponse = $this->ploi->getCertificates($serverId, $siteId);
             $siteData['certificates'] = $certificatesResponse['data'] ?? [];
         } catch (\Exception $e) {
-            \Log::error('Failed to fetch certificates', ['error' => $e->getMessage()]);
             $siteData['certificates'] = [];
         }
         
-        // Haal alle databases op en filter op site_id
         try {
             $databasesResponse = $this->ploi->getDatabases($serverId);
             $allDatabases = $databasesResponse['data'] ?? [];
             
-            // Filter databases die gekoppeld zijn aan deze site
             $siteDatabases = array_filter($allDatabases, function($db) use ($siteId) {
                 return isset($db['site_id']) && $db['site_id'] == $siteId;
             });
             
             $siteData['databases'] = array_values($siteDatabases);
-            
-            \Log::info('Databases found', [
-                'site_id' => $siteId,
-                'databases' => $siteData['databases']
-            ]);
         } catch (\Exception $e) {
-            \Log::error('Failed to fetch databases', ['error' => $e->getMessage()]);
             $siteData['databases'] = [];
         }
         
         return Inertia::render('Ploi/SiteDetails', [
-            'site' => $siteData
+            'site' => $siteData,
+            'repositories' => $repositories
         ]);
     }
 
-    // Repository koppelen
     public function connectRepository(Request $request, $serverId, $siteId)
     {
         $validated = $request->validate([
@@ -243,7 +202,6 @@ class PloiController extends Controller
                 throw new \Exception($response['message'] ?? $response['error'] ?? 'Unknown error');
             }
 
-            // Redirect naar dezelfde pagina zodat data opnieuw wordt geladen
             return redirect()->route('ploi.sites.show', ['serverId' => $serverId, 'siteId' => $siteId])
                 ->with('success', 'Repository succesvol gekoppeld!');
         } catch (\Exception $e) {
@@ -251,7 +209,6 @@ class PloiController extends Controller
         }
     }
 
-    // Deploy site
     public function deploy($serverId, $siteId)
     {
         try {
@@ -263,7 +220,6 @@ class PloiController extends Controller
         }
     }
 
-    // Koppel een Git repo (oude methode, behouden voor backwards compatibility)
     public function connectGit(Request $request, $serverId, $siteId)
     {
         $validated = $request->validate([
@@ -275,13 +231,12 @@ class PloiController extends Controller
         $response = $this->ploi->connectGit($serverId, $siteId, [
             'provider' => $validated['provider'],
             'branch' => $validated['branch'],
-            'name' => $validated['repository'], // 'name' in plaats van 'repository'
+            'name' => $validated['repository'],
         ]);
 
         return response()->json($response);
     }
 
-    // Ophalen .env (voor API calls)
     public function showEnv($serverId, $siteId)
     {
         try {
@@ -292,7 +247,6 @@ class PloiController extends Controller
         }
     }
 
-    // Updaten .env
     public function updateEnv(Request $request, $serverId, $siteId)
     {
         $validated = $request->validate([
@@ -300,14 +254,7 @@ class PloiController extends Controller
         ]);
 
         try {
-            \Log::info('Updating environment', [
-                'server_id' => $serverId,
-                'site_id' => $siteId
-            ]);
-
             $response = $this->ploi->updateEnvironment($serverId, $siteId, $validated['content']);
-            
-            \Log::info('Environment update response', ['response' => $response]);
 
             if (isset($response['error'])) {
                 throw new \Exception($response['error']);
@@ -315,15 +262,10 @@ class PloiController extends Controller
             
             return redirect()->back()->with('success', 'Environment bijgewerkt!');
         } catch (\Exception $e) {
-            \Log::error('Failed to update environment', [
-                'error' => $e->getMessage()
-            ]);
-            
             return back()->withErrors(['error' => $e->getMessage()]);
         }
     }
 
-    // Update deploy script
     public function updateDeployScript(Request $request, $serverId, $siteId)
     {
         $validated = $request->validate([
@@ -331,14 +273,7 @@ class PloiController extends Controller
         ]);
 
         try {
-            \Log::info('Updating deploy script', [
-                'server_id' => $serverId,
-                'site_id' => $siteId
-            ]);
-
             $response = $this->ploi->updateDeployScript($serverId, $siteId, $validated['deploy_script']);
-            
-            \Log::info('Deploy script update response', ['response' => $response]);
 
             if (isset($response['error'])) {
                 throw new \Exception($response['error']);
@@ -346,15 +281,10 @@ class PloiController extends Controller
             
             return redirect()->back()->with('success', 'Deploy script bijgewerkt!');
         } catch (\Exception $e) {
-            \Log::error('Failed to update deploy script', [
-                'error' => $e->getMessage()
-            ]);
-            
             return back()->withErrors(['error' => $e->getMessage()]);
         }
     }
 
-    // Update site settings
     public function updateSite(Request $request, $serverId, $siteId)
     {
         $validated = $request->validate([
@@ -365,18 +295,9 @@ class PloiController extends Controller
         ]);
 
         try {
-            \Log::info('Updating site settings', [
-                'server_id' => $serverId,
-                'site_id' => $siteId,
-                'data' => $validated
-            ]);
-
-            // Filter alleen ingevulde velden
             $data = array_filter($validated, fn($value) => $value !== null && $value !== '');
 
             $response = $this->ploi->updateSite($serverId, $siteId, $data);
-            
-            \Log::info('Site update response', ['response' => $response]);
 
             if (isset($response['error'])) {
                 throw new \Exception($response['error']);
@@ -386,15 +307,10 @@ class PloiController extends Controller
             
             return redirect()->back()->with('success', $message);
         } catch (\Exception $e) {
-            \Log::error('Failed to update site', [
-                'error' => $e->getMessage()
-            ]);
-            
             return back()->withErrors(['error' => $e->getMessage()]);
         }
     }
 
-    // SSL Certificaten
     public function createCertificate(Request $request, $serverId, $siteId)
     {
         $validated = $request->validate([

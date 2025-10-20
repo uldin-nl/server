@@ -24,6 +24,14 @@ type Database = {
     created_at: string;
 };
 
+type Repository = {
+    label: string;
+    name: string;
+    created_at: string;
+    provider_name?: string;
+    provider_id?: number;
+};
+
 type Props = {
     site: {
         id: number;
@@ -48,9 +56,10 @@ type Props = {
         certificates?: Certificate[];
         databases?: Database[];
     };
+    repositories: Repository[];
 };
 
-export default function SiteDetails({ site }: Props) {
+export default function SiteDetails({ site, repositories = [] }: Props) {
     const { errors, flash } = usePage().props as any;
     const [repository, setRepository] = useState(site.repository || '');
     const [branch, setBranch] = useState(site.branch || 'main');
@@ -399,24 +408,83 @@ export default function SiteDetails({ site }: Props) {
                                 <h3 className="font-semibold">
                                     GitHub Repository Koppelen
                                 </h3>
+
                                 <div>
                                     <label className="mb-1 block text-sm font-medium">
                                         Repository
                                     </label>
-                                    <input
-                                        type="text"
-                                        placeholder="username/repository"
-                                        value={repository}
-                                        onChange={(e) =>
-                                            setRepository(e.target.value)
-                                        }
-                                        className="w-full rounded border p-2"
-                                        required
-                                    />
-                                    <p className="mt-1 text-sm text-gray-500">
-                                        Formaat: gebruikersnaam/repository-naam
-                                    </p>
+
+                                    {repositories.length > 0 ? (
+                                        <>
+                                            <select
+                                                value={repository}
+                                                onChange={(e) =>
+                                                    setRepository(
+                                                        e.target.value,
+                                                    )
+                                                }
+                                                className="w-full rounded border p-2"
+                                                required
+                                            >
+                                                <option value="">
+                                                    Selecteer een repository...
+                                                </option>
+                                                {repositories.map((repo) => (
+                                                    <option
+                                                        key={`${repo.provider_id}-${repo.name}`}
+                                                        value={repo.name}
+                                                    >
+                                                        {repo.label}{' '}
+                                                        {repo.provider_name && (
+                                                            <span className="text-gray-500">
+                                                                (
+                                                                {
+                                                                    repo.provider_name
+                                                                }
+                                                                )
+                                                            </span>
+                                                        )}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <p className="mt-1 text-sm text-gray-500">
+                                                Of voer hieronder handmatig een
+                                                repository in
+                                            </p>
+                                            <input
+                                                type="text"
+                                                placeholder="username/repository"
+                                                value={repository}
+                                                onChange={(e) =>
+                                                    setRepository(
+                                                        e.target.value,
+                                                    )
+                                                }
+                                                className="mt-2 w-full rounded border p-2"
+                                            />
+                                        </>
+                                    ) : (
+                                        <>
+                                            <input
+                                                type="text"
+                                                placeholder="username/repository"
+                                                value={repository}
+                                                onChange={(e) =>
+                                                    setRepository(
+                                                        e.target.value,
+                                                    )
+                                                }
+                                                className="w-full rounded border p-2"
+                                                required
+                                            />
+                                            <p className="mt-1 text-sm text-gray-500">
+                                                Formaat:
+                                                gebruikersnaam/repository-naam
+                                            </p>
+                                        </>
+                                    )}
                                 </div>
+
                                 <div>
                                     <label className="mb-1 block text-sm font-medium">
                                         Branch
@@ -431,7 +499,12 @@ export default function SiteDetails({ site }: Props) {
                                         className="w-full rounded border p-2"
                                         required
                                     />
+                                    <p className="mt-1 text-sm text-gray-500">
+                                        Standaard branches: main, master,
+                                        develop
+                                    </p>
                                 </div>
+
                                 <button
                                     type="submit"
                                     className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
