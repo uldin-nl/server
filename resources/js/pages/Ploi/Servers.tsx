@@ -63,17 +63,29 @@ export default function Servers({
                 <h1 className="mb-4 text-2xl font-bold">Servers</h1>
                 <ul className="space-y-2">
                     {servers.map((server) => (
-                        <Link
+                        <li
                             key={server.id}
-                            href={`/ploi/servers/${server.id}`}
+                            className="rounded-md bg-gray-100 p-4"
                         >
-                            <li className="rounded-md bg-gray-100 p-4">
-                                <div className="font-semibold">
-                                    {server.name}
-                                </div>
-                                <div>{server.ip_address}</div>
-                            </li>
-                        </Link>
+                            <div>
+                                <Link
+                                    href={`/ploi/servers/${server.id}`}
+                                    className="block"
+                                >
+                                    <div className="font-semibold">
+                                        {server.name}
+                                    </div>
+                                    <div>{server.ip_address}</div>
+                                </Link>
+
+                                <Link
+                                    href={`/servers/${server.id}/sites/create`}
+                                    className="mt-4 block rounded-md bg-blue-500 p-4 text-center text-white hover:bg-blue-600"
+                                >
+                                    Nieuwe Site Toevoegen
+                                </Link>
+                            </div>
+                        </li>
                     ))}
                 </ul>
             </div>
