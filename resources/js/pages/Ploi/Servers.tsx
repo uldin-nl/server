@@ -79,7 +79,7 @@ export default function Servers({
                                 </Link>
 
                                 <Link
-                                    href={`ploi/servers/${server.id}/sites/create`}
+                                    href={`/ploi/servers/${server.id}/sites/create`}
                                     className="mt-4 block rounded-md bg-blue-500 p-4 text-center text-white hover:bg-blue-600"
                                 >
                                     Nieuwe Site Toevoegen
