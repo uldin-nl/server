@@ -20,7 +20,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/servers/{serverId}/sites/create', [PloiController::class, 'createSiteForm'])->name('ploi.sites.create');
         Route::post('/servers/{serverId}/sites', [PloiController::class, 'createSite']);
         
-        // Site detail - AANGEPAST met serverId
+        // Site detail
         Route::get('/servers/{serverId}/sites/{siteId}', [PloiController::class, 'showSite'])->name('ploi.sites.show');
         
         // Repository koppelen
@@ -36,8 +36,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/servers/{serverId}/sites/{siteId}/env', [PloiController::class, 'showEnv']);
         Route::post('/servers/{serverId}/sites/{siteId}/env', [PloiController::class, 'updateEnv']);
         
+        // SSL Certificaten
+        Route::post('/servers/{serverId}/sites/{siteId}/certificates', [PloiController::class, 'createCertificate']);
+        Route::delete('/servers/{serverId}/sites/{siteId}/certificates/{certificateId}', [PloiController::class, 'deleteCertificate']);
+        
         // Oude git endpoint (voor backwards compatibility)
         Route::post('/servers/{serverId}/sites/{siteId}/git', [PloiController::class, 'connectGit']);
+        
+        // Site updaten
+        Route::patch('/servers/{serverId}/sites/{siteId}', [PloiController::class, 'updateSite']);
     });
 });
 

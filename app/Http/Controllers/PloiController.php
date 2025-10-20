@@ -103,8 +103,6 @@ class PloiController extends Controller
         // Voeg server_id toe
         $siteData['server_id'] = $serverId;
         
-        \Log::info('Initial site data', ['site' => $siteData]);
-        
         // Als de site een repository heeft, haal deze op
         if (isset($siteData['has_repository']) && $siteData['has_repository'] === true) {
             try {
@@ -113,7 +111,6 @@ class PloiController extends Controller
                 if (isset($repoResponse['data']['repository'])) {
                     $repo = $repoResponse['data']['repository'];
                     
-                    // Parse repository info uit nested object
                     $siteData['repository'] = ($repo['user'] ?? '') . '/' . ($repo['name'] ?? '');
                     $siteData['branch'] = $repo['branch'] ?? null;
                     $siteData['repository_provider'] = $repo['provider'] ?? null;
@@ -125,33 +122,24 @@ class PloiController extends Controller
             // Haal .env op
             try {
                 $envResponse = $this->ploi->getEnvironment($serverId, $siteId);
-                \Log::info('Raw environment response', ['response' => $envResponse]);
-                
-                // Probeer verschillende response formaten
-                if (is_string($envResponse)) {
-                    $siteData['env_content'] = $envResponse;
-                } elseif (isset($envResponse['content'])) {
-                    $siteData['env_content'] = $envResponse['content'];
-                } elseif (isset($envResponse['data']['content'])) {
-                    $siteData['env_content'] = $envResponse['data']['content'];
-                } elseif (isset($envResponse['data'])) {
-                    $siteData['env_content'] = $envResponse['data'];
-                } else {
-                    $siteData['env_content'] = '';
-                }
-                
-                \Log::info('Parsed env content', ['env_length' => strlen($siteData['env_content'])]);
+                $siteData['env_content'] = $envResponse['data'] ?? '';
             } catch (\Exception $e) {
-                \Log::error('Failed to fetch environment', [
-                    'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString()
-                ]);
+                \Log::error('Failed to fetch environment', ['error' => $e->getMessage()]);
                 $siteData['env_content'] = '';
             }
         } else {
             $siteData['repository'] = null;
             $siteData['branch'] = null;
             $siteData['env_content'] = '';
+        }
+        
+        // Haal SSL certificaten op
+        try {
+            $certificatesResponse = $this->ploi->getCertificates($serverId, $siteId);
+            $siteData['certificates'] = $certificatesResponse['data'] ?? [];
+        } catch (\Exception $e) {
+            \Log::error('Failed to fetch certificates', ['error' => $e->getMessage()]);
+            $siteData['certificates'] = [];
         }
         
         return Inertia::render('Ploi/SiteDetails', [
@@ -285,6 +273,84 @@ class PloiController extends Controller
                 'error' => $e->getMessage()
             ]);
             
+            return back()->withErrors(['error' => $e->getMessage()]);
+        }
+    }
+
+    // Update site settings
+    public function updateSite(Request $request, $serverId, $siteId)
+    {
+        $validated = $request->validate([
+            'root_domain' => 'nullable|string|max:100',
+            'web_directory' => 'nullable|string',
+            'project_root' => 'nullable|string',
+            'health_url' => 'nullable|url',
+        ]);
+
+        try {
+            \Log::info('Updating site settings', [
+                'server_id' => $serverId,
+                'site_id' => $siteId,
+                'data' => $validated
+            ]);
+
+            // Filter alleen ingevulde velden
+            $data = array_filter($validated, fn($value) => $value !== null && $value !== '');
+
+            $response = $this->ploi->updateSite($serverId, $siteId, $data);
+            
+            \Log::info('Site update response', ['response' => $response]);
+
+            if (isset($response['error'])) {
+                throw new \Exception($response['error']);
+            }
+            
+            $message = $response['message'] ?? 'Site instellingen bijgewerkt!';
+            
+            return redirect()->back()->with('success', $message);
+        } catch (\Exception $e) {
+            \Log::error('Failed to update site', [
+                'error' => $e->getMessage()
+            ]);
+            
+            return back()->withErrors(['error' => $e->getMessage()]);
+        }
+    }
+
+    // SSL Certificaten
+    public function createCertificate(Request $request, $serverId, $siteId)
+    {
+        $validated = $request->validate([
+            'type' => 'required|string|in:letsencrypt,custom',
+            'certificate' => 'required|string',
+            'private' => 'required_if:type,custom|string',
+            'force' => 'nullable|boolean',
+        ]);
+
+        try {
+            $response = $this->ploi->createCertificate($serverId, $siteId, $validated);
+            
+            if (isset($response['error'])) {
+                throw new \Exception($response['error']);
+            }
+            
+            return redirect()->back()->with('success', 'SSL certificaat wordt aangemaakt!');
+        } catch (\Exception $e) {
+            return back()->withErrors(['error' => $e->getMessage()]);
+        }
+    }
+
+    public function deleteCertificate($serverId, $siteId, $certificateId)
+    {
+        try {
+            $response = $this->ploi->deleteCertificate($serverId, $siteId, $certificateId);
+            
+            if (isset($response['error'])) {
+                throw new \Exception($response['error']);
+            }
+            
+            return redirect()->back()->with('success', 'SSL certificaat verwijderd!');
+        } catch (\Exception $e) {
             return back()->withErrors(['error' => $e->getMessage()]);
         }
     }

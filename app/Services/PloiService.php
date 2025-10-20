@@ -141,4 +141,40 @@ class PloiService
             ])
             ->json();
     }
+    
+    public function updateSite($serverId, $siteId, array $data)
+    {
+        return Http::withToken($this->apiToken)
+            ->patch("{$this->apiUrl}/servers/{$serverId}/sites/{$siteId}", $data)
+            ->json();
+    }
+
+    // 🔹 SSL Certificaten
+    public function getCertificates($serverId, $siteId)
+    {
+        return Http::withToken($this->apiToken)
+            ->get("{$this->apiUrl}/servers/{$serverId}/sites/{$siteId}/certificates")
+            ->json();
+    }
+
+    public function getCertificate($serverId, $siteId, $certificateId)
+    {
+        return Http::withToken($this->apiToken)
+            ->get("{$this->apiUrl}/servers/{$serverId}/sites/{$siteId}/certificates/{$certificateId}")
+            ->json();
+    }
+
+    public function createCertificate($serverId, $siteId, array $data)
+    {
+        return Http::withToken($this->apiToken)
+            ->post("{$this->apiUrl}/servers/{$serverId}/sites/{$siteId}/certificates", $data)
+            ->json();
+    }
+
+    public function deleteCertificate($serverId, $siteId, $certificateId)
+    {
+        return Http::withToken($this->apiToken)
+            ->delete("{$this->apiUrl}/servers/{$serverId}/sites/{$siteId}/certificates/{$certificateId}")
+            ->json();
+    }
 }
