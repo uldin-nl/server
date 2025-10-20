@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\PloiService;
 use Inertia\Inertia;
 use Illuminate\Http\Request; 
+use Illuminate\Support\Str;
 
 class PloiController extends Controller
 {
@@ -64,34 +65,89 @@ class PloiController extends Controller
         ]);
     }
 
-    public function createSite(Request $request, $serverId)
-    {
-        try {
-            $validated = $request->validate([
-                'domain' => 'required|string',
-                'project_type' => 'nullable|string',
-                'php_version' => 'nullable|string',
-                'web_directory' => 'required|string',
-            ]);
-
-            $validated['root_domain'] = $validated['domain'];
-
-            $site = $this->ploi->createSite($serverId, $validated);
-
-            return redirect()->route('ploi.server.show', $serverId)
-                ->with('success', 'Site created successfully');
-        } catch (\Exception $e) {
-            return back()
-                ->withErrors(['error' => $e->getMessage()])
-                ->withInput();
-        }
-    }
-
+    // Toon formulier voor nieuwe site
     public function createSiteForm($serverId)
     {
         return Inertia::render('Ploi/CreateSite', [
             'serverId' => $serverId
         ]);
+    }
+
+    public function createSite(Request $request, $serverId)
+    {
+        $validated = $request->validate([
+            'domain' => 'nullable|string',
+            'web_directory' => 'required|string',
+            'project_type' => 'required|string',
+            'php_version' => 'required|string',
+        ]);
+
+        try {
+            // Genereer random 8-karakter subdomain als geen domain is opgegeven
+            $domain = $validated['domain'] ?? strtolower(Str::random(8)) . '.uldin.cloud';
+            
+            // Haal alleen de subdomain naam op (zonder .uldin.cloud)
+            $dbName = str_replace('.uldin.cloud', '', $domain);
+            // Vervang - met _ voor database naam (MySQL staat geen - toe)
+            $dbName = str_replace('-', '_', $dbName);
+            
+            // Genereer veilig wachtwoord
+            $dbPassword = Str::random(16);
+
+            \Log::info('Creating site', [
+                'domain' => $domain,
+                'db_name' => $dbName,
+                'server_id' => $serverId
+            ]);
+
+            // 1. Maak site aan
+            $siteResponse = $this->ploi->createSite($serverId, [
+                'root_domain' => $domain,
+                'web_directory' => $validated['web_directory'],
+                'project_type' => $validated['project_type'],
+                'php_version' => $validated['php_version'],
+            ]);
+
+            if (isset($siteResponse['error'])) {
+                throw new \Exception($siteResponse['error']);
+            }
+
+            $siteId = $siteResponse['data']['id'] ?? null;
+
+            if (!$siteId) {
+                throw new \Exception('Site ID niet gevonden in response');
+            }
+
+            \Log::info('Site created', ['site_id' => $siteId]);
+
+            // 2. Maak database aan
+            $databaseResponse = $this->ploi->createDatabase($serverId, [
+                'name' => $dbName,
+                'user' => $dbName,
+                'password' => $dbPassword,
+                'description' => "Database voor {$domain}",
+                'site_id' => $siteId,
+            ]);
+
+            if (isset($databaseResponse['error'])) {
+                \Log::error('Database creation failed', ['error' => $databaseResponse['error']]);
+                // Site is al gemaakt, ga door
+            } else {
+                \Log::info('Database created', ['database' => $databaseResponse]);
+            }
+
+            return redirect()
+                ->route('ploi.sites.show', ['serverId' => $serverId, 'siteId' => $siteId])
+                ->with('success', "Site {$domain} succesvol aangemaakt met database!");
+
+        } catch (\Exception $e) {
+            \Log::error('Site creation failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return back()->withErrors(['error' => $e->getMessage()]);
+        }
     }
 
     // Site detail pagina
@@ -140,6 +196,27 @@ class PloiController extends Controller
         } catch (\Exception $e) {
             \Log::error('Failed to fetch certificates', ['error' => $e->getMessage()]);
             $siteData['certificates'] = [];
+        }
+        
+        // Haal alle databases op en filter op site_id
+        try {
+            $databasesResponse = $this->ploi->getDatabases($serverId);
+            $allDatabases = $databasesResponse['data'] ?? [];
+            
+            // Filter databases die gekoppeld zijn aan deze site
+            $siteDatabases = array_filter($allDatabases, function($db) use ($siteId) {
+                return isset($db['site_id']) && $db['site_id'] == $siteId;
+            });
+            
+            $siteData['databases'] = array_values($siteDatabases);
+            
+            \Log::info('Databases found', [
+                'site_id' => $siteId,
+                'databases' => $siteData['databases']
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Failed to fetch databases', ['error' => $e->getMessage()]);
+            $siteData['databases'] = [];
         }
         
         return Inertia::render('Ploi/SiteDetails', [

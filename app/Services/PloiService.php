@@ -177,4 +177,40 @@ class PloiService
             ->delete("{$this->apiUrl}/servers/{$serverId}/sites/{$siteId}/certificates/{$certificateId}")
             ->json();
     }
+
+    // 🔹 Databases
+    public function createDatabase($serverId, array $data)
+    {
+        return Http::withToken($this->apiToken)
+            ->post("{$this->apiUrl}/servers/{$serverId}/databases", $data)
+            ->json();
+    }
+
+    public function getDatabase($serverId, $databaseId)
+    {
+        return Http::withToken($this->apiToken)
+            ->get("{$this->apiUrl}/servers/{$serverId}/databases/{$databaseId}")
+            ->json();
+    }
+
+    public function getDatabases($serverId)
+    {
+        return Http::withToken($this->apiToken)
+            ->get("{$this->apiUrl}/servers/{$serverId}/databases")
+            ->json();
+    }
+
+    public function createDatabaseUser($serverId, $databaseId, array $data)
+    {
+        return Http::withToken($this->apiToken)
+            ->post("{$this->apiUrl}/servers/{$serverId}/databases/{$databaseId}/users", $data)
+            ->json();
+    }
+
+    public function getDatabaseUser($serverId, $databaseId, $userId)
+    {
+        return Http::withToken($this->apiToken)
+            ->get("{$this->apiUrl}/servers/{$serverId}/databases/{$databaseId}/users/{$userId}")
+            ->json();
+    }
 }

@@ -13,6 +13,17 @@ type Certificate = {
     created_at: string;
 };
 
+type Database = {
+    id: number;
+    type: string;
+    name: string;
+    server_id: number;
+    site_id?: number;
+    status: string;
+    description?: string;
+    created_at: string;
+};
+
 type Props = {
     site: {
         id: number;
@@ -35,6 +46,7 @@ type Props = {
         health_url?: string;
         created_at?: string;
         certificates?: Certificate[];
+        databases?: Database[];
     };
 };
 
@@ -216,6 +228,78 @@ export default function SiteDetails({ site }: Props) {
                         </p>
                     </div>
                 </div>
+
+                {/* Database Info Card - Direct onder Site Info Card */}
+                {site.databases && site.databases.length > 0 && (
+                    <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4">
+                        <h3 className="mb-3 font-semibold text-blue-900">
+                            📊 Database Informatie
+                        </h3>
+                        <div className="space-y-3">
+                            {site.databases.map((db) => (
+                                <div
+                                    key={db.id}
+                                    className="rounded-lg bg-white p-3"
+                                >
+                                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                        <div>
+                                            <p className="text-sm text-gray-600">
+                                                Database Naam
+                                            </p>
+                                            <p className="font-mono font-semibold">
+                                                {db.name}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <p className="text-sm text-gray-600">
+                                                Type
+                                            </p>
+                                            <p className="font-semibold">
+                                                {db.type}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <p className="text-sm text-gray-600">
+                                                Status
+                                            </p>
+                                            {getStatusBadge(db.status)}
+                                        </div>
+                                        <div>
+                                            <p className="text-sm text-gray-600">
+                                                Aangemaakt
+                                            </p>
+                                            <p className="font-semibold">
+                                                {new Date(
+                                                    db.created_at,
+                                                ).toLocaleDateString('nl-NL')}
+                                            </p>
+                                        </div>
+                                        {db.description && (
+                                            <div className="md:col-span-2">
+                                                <p className="text-sm text-gray-600">
+                                                    Beschrijving
+                                                </p>
+                                                <p className="text-sm">
+                                                    {db.description}
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="mt-3 rounded bg-yellow-50 p-3">
+                            <p className="text-sm text-yellow-800">
+                                💡 <strong>Tip:</strong> De database credentials
+                                zijn hetzelfde als de database naam. Gebruik{' '}
+                                <code className="rounded bg-yellow-100 px-1">
+                                    {site.databases[0]?.name}
+                                </code>{' '}
+                                als database naam, gebruikersnaam én wachtwoord.
+                            </p>
+                        </div>
+                    </div>
+                )}
 
                 {/* Tabs */}
                 <div className="mb-6 border-b">
