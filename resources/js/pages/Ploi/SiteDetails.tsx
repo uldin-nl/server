@@ -69,6 +69,7 @@ export default function SiteDetails({ site, repositories = [] }: Props) {
         'deploy' | 'env' | 'script' | 'settings' | 'ssl'
     >('deploy');
     const [showRepositoryForm, setShowRepositoryForm] = useState(false);
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
 
     // Settings form state
     const [rootDomain, setRootDomain] = useState(site.domain || '');
@@ -156,6 +157,11 @@ export default function SiteDetails({ site, repositories = [] }: Props) {
                 `/ploi/servers/${site.server_id}/sites/${site.id}/deploy`,
             );
         }
+    };
+
+    const handleDeleteSite = () => {
+        router.delete(`/ploi/servers/${site.server_id}/sites/${site.id}`);
+        setShowDeleteModal(false);
     };
 
     const getStatusBadge = (status: string) => {
@@ -991,6 +997,61 @@ export default function SiteDetails({ site, repositories = [] }: Props) {
                             Instellingen Opslaan
                         </button>
                     </form>
+                )}
+
+                {/* Danger Zone - alleen tonen in Settings tab */}
+                {activeTab === 'settings' && (
+                    <div className="mt-8 rounded-lg border-2 border-red-200 bg-red-50 p-6">
+                        <h3 className="mb-2 text-lg font-semibold text-red-800">
+                            Danger Zone
+                        </h3>
+                        <p className="mb-4 text-sm text-red-700">
+                            Het verwijderen van een site kan niet ongedaan worden
+                            gemaakt. Alle data, configuratie en bestanden worden
+                            permanent verwijderd.
+                        </p>
+                        <button
+                            type="button"
+                            onClick={() => setShowDeleteModal(true)}
+                            className="rounded bg-red-600 px-6 py-2 text-white hover:bg-red-700"
+                        >
+                            Site Verwijderen
+                        </button>
+                    </div>
+                )}
+
+                {/* Delete Confirmation Modal */}
+                {showDeleteModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+                        <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+                            <h3 className="mb-4 text-xl font-bold text-red-600">
+                                Site Verwijderen
+                            </h3>
+                            <p className="mb-2 text-gray-700">
+                                Weet je zeker dat je <strong>{site.domain}</strong>{' '}
+                                wilt verwijderen?
+                            </p>
+                            <p className="mb-6 text-sm text-red-600">
+                                Dit kan niet ongedaan worden gemaakt! Alle data,
+                                configuratie en bestanden worden permanent
+                                verwijderd.
+                            </p>
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={handleDeleteSite}
+                                    className="flex-1 rounded bg-red-600 px-4 py-2 text-white hover:bg-red-700"
+                                >
+                                    Ja, Verwijderen
+                                </button>
+                                <button
+                                    onClick={() => setShowDeleteModal(false)}
+                                    className="flex-1 rounded border border-gray-300 px-4 py-2 hover:bg-gray-50"
+                                >
+                                    Annuleren
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 )}
             </div>
         </AppLayout>

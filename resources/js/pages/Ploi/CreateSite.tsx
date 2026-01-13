@@ -1,15 +1,36 @@
 import AppLayout from '@/layouts/app-layout';
-import { router } from '@inertiajs/react';
-import { useState } from 'react';
+import { router, usePage } from '@inertiajs/react';
+import { useEffect, useState } from 'react';
+
+type SystemUser = {
+    id: number;
+    name: string;
+};
 
 export default function CreateSite({
     serverId,
+    systemUsers,
 }: {
     serverId: string | number;
+    systemUsers: SystemUser[];
 }) {
+    const { url } = usePage();
+    const urlParams = new URLSearchParams(url.split('?')[1] || '');
+    const clientParam = urlParams.get('client');
+
     const [phpVersion, setPhpVersion] = useState('8.4');
     const [projectType, setProjectType] = useState('laravel');
     const [webDirectory, setWebDirectory] = useState('/public');
+    const [systemUser, setSystemUser] = useState(clientParam || '');
+    const [newUserName, setNewUserName] = useState('');
+    const [createNewUser, setCreateNewUser] = useState(false);
+
+    useEffect(() => {
+        if (clientParam) {
+            setSystemUser(clientParam);
+            setCreateNewUser(false);
+        }
+    }, [clientParam]);
 
     const handleSubmit = (e: { preventDefault: () => void }) => {
         e.preventDefault();
@@ -17,6 +38,8 @@ export default function CreateSite({
             php_version: phpVersion,
             project_type: projectType,
             web_directory: webDirectory,
+            system_user: createNewUser ? newUserName : systemUser,
+            create_new_user: createNewUser,
         });
     };
 
@@ -96,6 +119,68 @@ export default function CreateSite({
                     <p className="mt-1 text-sm text-gray-500">
                         Voor Laravel: /public, voor WordPress: /
                     </p>
+                </div>
+
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                    <label className="mb-3 block text-sm font-medium">
+                        System User
+                    </label>
+
+                    <div className="mb-4 space-y-2">
+                        <label className="flex items-center gap-2">
+                            <input
+                                type="radio"
+                                checked={!createNewUser}
+                                onChange={() => setCreateNewUser(false)}
+                                className="h-4 w-4"
+                            />
+                            <span>Bestaande user selecteren</span>
+                        </label>
+                        <label className="flex items-center gap-2">
+                            <input
+                                type="radio"
+                                checked={createNewUser}
+                                onChange={() => setCreateNewUser(true)}
+                                className="h-4 w-4"
+                            />
+                            <span>Nieuwe user aanmaken</span>
+                        </label>
+                    </div>
+
+                    {!createNewUser ? (
+                        <div>
+                            <select
+                                value={systemUser}
+                                onChange={(e) => setSystemUser(e.target.value)}
+                                className="w-full rounded border p-2"
+                                required
+                            >
+                                <option value="">Selecteer een user...</option>
+                                {systemUsers.map((user) => (
+                                    <option key={user.id} value={user.name}>
+                                        {user.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <p className="mt-1 text-sm text-gray-500">
+                                Sites van dezelfde user worden gegroepeerd
+                            </p>
+                        </div>
+                    ) : (
+                        <div>
+                            <input
+                                type="text"
+                                value={newUserName}
+                                onChange={(e) => setNewUserName(e.target.value)}
+                                className="w-full rounded border p-2"
+                                placeholder="bijv. klant-naam"
+                                required
+                            />
+                            <p className="mt-1 text-sm text-gray-500">
+                                Nieuwe system user wordt automatisch aangemaakt
+                            </p>
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex gap-3">

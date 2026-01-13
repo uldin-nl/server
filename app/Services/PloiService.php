@@ -247,4 +247,25 @@ class PloiService
             ])
             ->json();
     }
+
+    public function deleteSite($serverId, $siteId)
+    {
+        return Http::withToken($this->apiToken)
+            ->delete("{$this->apiUrl}/servers/{$serverId}/sites/{$siteId}")
+            ->json();
+    }
+
+    public function getSystemUsers($serverId)
+    {
+        return Http::withToken($this->apiToken)
+            ->get("{$this->apiUrl}/servers/{$serverId}/system-users")
+            ->json();
+    }
+
+    public function createSystemUser($serverId, array $data)
+    {
+        return Http::withToken($this->apiToken)
+            ->post("{$this->apiUrl}/servers/{$serverId}/system-users", $data)
+            ->json();
+    }
 }

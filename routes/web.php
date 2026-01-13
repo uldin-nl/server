@@ -14,6 +14,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
     })->name('dashboard');
 
     Route::get('/ploi/servers', [PloiController::class, 'index'])->name('ploi.servers');
+    Route::get('/ploi/sites', [PloiController::class, 'allSites'])->name('ploi.sites');
+    Route::get('/ploi/clients', [PloiController::class, 'clients'])->name('ploi.clients');
+    Route::get('/ploi/servers/{serverId}/clients/{userId}', [PloiController::class, 'clientDetail'])->name('ploi.client.detail');
+    Route::post('/ploi/servers/{serverId}/system-users', [PloiController::class, 'createSystemUser'])->name('ploi.system-users.create');
     Route::get('/ploi/servers/{id}', [PloiController::class, 'show'])->name('ploi.server.show');
 
     Route::prefix('ploi')->group(function () {
@@ -22,7 +26,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         
         // Site detail
         Route::get('/servers/{serverId}/sites/{siteId}', [PloiController::class, 'showSite'])->name('ploi.sites.show');
-        
+        Route::delete('/servers/{serverId}/sites/{siteId}', [PloiController::class, 'deleteSite'])->name('ploi.sites.delete');
+
         // Repository koppelen
         Route::post('/servers/{serverId}/sites/{siteId}/repository', [PloiController::class, 'connectRepository']);
 

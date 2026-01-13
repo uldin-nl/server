@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Services\PloiService;
 use Inertia\Inertia;
-use Illuminate\Http\Request; 
+use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
 class PloiController extends Controller
@@ -19,6 +19,15 @@ class PloiController extends Controller
     public function index(Request $request)
     {
         $servers = $this->ploi->getServers();
+
+        return Inertia::render('Ploi/Servers', [
+            'servers' => $servers['data'] ?? [],
+        ]);
+    }
+
+    public function allSites(Request $request)
+    {
+        $servers = $this->ploi->getServers();
         $allSites = [];
         $currentPage = $request->get('page', 1);
         $search = $request->get('search', '');
@@ -26,13 +35,16 @@ class PloiController extends Controller
 
         foreach ($servers['data'] as $server) {
             $sites = $this->ploi->getSites($server['id'], $currentPage, $search);
-            $allSites = array_merge($allSites, $sites['data'] ?? []);
+            foreach ($sites['data'] ?? [] as $site) {
+                $site['server_name'] = $server['name'] ?? 'Unknown';
+                $allSites[] = $site;
+            }
             $totalSites += $sites['meta']['total'] ?? 0;
         }
 
-        return Inertia::render('Ploi/Servers', [
-            'servers' => $servers['data'] ?? [],
+        return Inertia::render('Ploi/AllSites', [
             'sites' => $allSites,
+            'servers' => $servers['data'] ?? [],
             'pagination' => [
                 'current_page' => $currentPage,
                 'total' => $totalSites,
@@ -43,6 +55,70 @@ class PloiController extends Controller
                 'search' => $search,
             ],
         ]);
+    }
+
+    public function clients()
+    {
+        $servers = $this->ploi->getServers();
+        $allClients = [];
+
+        foreach ($servers['data'] as $server) {
+            $systemUsers = $this->ploi->getSystemUsers($server['id']);
+
+            foreach ($systemUsers['data'] ?? [] as $user) {
+                $user['server_id'] = $server['id'];
+                $user['server_name'] = $server['name'];
+                $allClients[] = $user;
+            }
+        }
+
+        return Inertia::render('Ploi/Clients', [
+            'clients' => $allClients,
+            'servers' => $servers['data'] ?? [],
+        ]);
+    }
+
+    public function clientDetail($serverId, $userId)
+    {
+        $systemUsers = $this->ploi->getSystemUsers($serverId);
+        $client = collect($systemUsers['data'] ?? [])->firstWhere('id', $userId);
+
+        if (!$client) {
+            return redirect()->route('ploi.clients')->withErrors(['error' => 'Klant niet gevonden']);
+        }
+
+        $sites = $this->ploi->getSites($serverId);
+        $clientSites = collect($sites['data'] ?? [])
+            ->filter(fn($site) => ($site['system_user'] ?? '') === $client['name'])
+            ->values()
+            ->all();
+
+        return Inertia::render('Ploi/ClientDetail', [
+            'client' => array_merge($client, ['server_id' => $serverId]),
+            'sites' => $clientSites,
+            'serverId' => $serverId,
+        ]);
+    }
+
+    public function createSystemUser(Request $request, $serverId)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string',
+        ]);
+
+        try {
+            $response = $this->ploi->createSystemUser($serverId, [
+                'name' => $validated['name'],
+            ]);
+
+            if (isset($response['error'])) {
+                throw new \Exception($response['error']);
+            }
+
+            return redirect()->route('ploi.clients')->with('success', 'Klant succesvol aangemaakt!');
+        } catch (\Exception $e) {
+            return back()->withErrors(['error' => $e->getMessage()]);
+        }
     }
 
     public function show($id)
@@ -67,8 +143,11 @@ class PloiController extends Controller
 
     public function createSiteForm($serverId)
     {
+        $systemUsers = $this->ploi->getSystemUsers($serverId);
+
         return Inertia::render('Ploi/CreateSite', [
-            'serverId' => $serverId
+            'serverId' => $serverId,
+            'systemUsers' => $systemUsers['data'] ?? []
         ]);
     }
 
@@ -79,9 +158,22 @@ class PloiController extends Controller
             'web_directory' => 'required|string',
             'project_type' => 'required|string',
             'php_version' => 'required|string',
+            'system_user' => 'required|string',
+            'create_new_user' => 'boolean',
         ]);
 
         try {
+            // Als er een nieuwe user aangemaakt moet worden
+            if ($validated['create_new_user'] ?? false) {
+                $userResponse = $this->ploi->createSystemUser($serverId, [
+                    'name' => $validated['system_user'],
+                ]);
+
+                if (isset($userResponse['error'])) {
+                    throw new \Exception('Fout bij aanmaken system user: ' . ($userResponse['error'] ?? 'Unknown error'));
+                }
+            }
+
             $domain = $validated['domain'] ?? strtolower(Str::random(8)) . '.uldin.cloud';
             $dbName = str_replace(['.uldin.cloud', '-'], ['', '_'], $domain);
             $dbPassword = Str::random(16);
@@ -91,6 +183,7 @@ class PloiController extends Controller
                 'web_directory' => $validated['web_directory'],
                 'project_type' => $validated['project_type'],
                 'php_version' => $validated['php_version'],
+                'system_user' => $validated['system_user'],
             ]);
 
             if (isset($siteResponse['error'])) {
@@ -114,7 +207,6 @@ class PloiController extends Controller
             return redirect()
                 ->route('ploi.sites.show', ['serverId' => $serverId, 'siteId' => $siteId])
                 ->with('success', "Site {$domain} succesvol aangemaakt met database!");
-
         } catch (\Exception $e) {
             return back()->withErrors(['error' => $e->getMessage()]);
         }
@@ -125,18 +217,18 @@ class PloiController extends Controller
         $site = $this->ploi->getSite($serverId, $siteId);
         $siteData = $site['data'] ?? [];
         $siteData['server_id'] = $serverId;
-        
+
         $repositories = [];
         try {
             $repoResponse = $this->ploi->getRepositories('github');
             $repositories = $repoResponse['data']['repositories'] ?? [];
         } catch (\Exception $e) {
         }
-        
+
         if (isset($siteData['has_repository']) && $siteData['has_repository'] === true) {
             try {
                 $repoResponse = $this->ploi->getRepository($serverId, $siteId);
-                
+
                 if (isset($repoResponse['data']['repository'])) {
                     $repo = $repoResponse['data']['repository'];
                     $siteData['repository'] = ($repo['user'] ?? '') . '/' . ($repo['name'] ?? '');
@@ -145,7 +237,7 @@ class PloiController extends Controller
                 }
             } catch (\Exception $e) {
             }
-            
+
             try {
                 $envResponse = $this->ploi->getEnvironment($serverId, $siteId);
                 $siteData['env_content'] = $envResponse['data'] ?? '';
@@ -157,27 +249,27 @@ class PloiController extends Controller
             $siteData['branch'] = null;
             $siteData['env_content'] = '';
         }
-        
+
         try {
             $certificatesResponse = $this->ploi->getCertificates($serverId, $siteId);
             $siteData['certificates'] = $certificatesResponse['data'] ?? [];
         } catch (\Exception $e) {
             $siteData['certificates'] = [];
         }
-        
+
         try {
             $databasesResponse = $this->ploi->getDatabases($serverId);
             $allDatabases = $databasesResponse['data'] ?? [];
-            
-            $siteDatabases = array_filter($allDatabases, function($db) use ($siteId) {
+
+            $siteDatabases = array_filter($allDatabases, function ($db) use ($siteId) {
                 return isset($db['site_id']) && $db['site_id'] == $siteId;
             });
-            
+
             $siteData['databases'] = array_values($siteDatabases);
         } catch (\Exception $e) {
             $siteData['databases'] = [];
         }
-        
+
         return Inertia::render('Ploi/SiteDetails', [
             'site' => $siteData,
             'repositories' => $repositories
@@ -228,7 +320,7 @@ class PloiController extends Controller
     {
         try {
             $response = $this->ploi->deploySite($serverId, $siteId);
-            
+
             return redirect()->back()->with('success', 'Deployment gestart!');
         } catch (\Exception $e) {
             return back()->withErrors(['error' => $e->getMessage()]);
@@ -274,7 +366,7 @@ class PloiController extends Controller
             if (isset($response['error'])) {
                 throw new \Exception($response['error']);
             }
-            
+
             return redirect()->back()->with('success', 'Environment bijgewerkt!');
         } catch (\Exception $e) {
             return back()->withErrors(['error' => $e->getMessage()]);
@@ -293,7 +385,7 @@ class PloiController extends Controller
             if (isset($response['error'])) {
                 throw new \Exception($response['error']);
             }
-            
+
             return redirect()->back()->with('success', 'Deploy script bijgewerkt!');
         } catch (\Exception $e) {
             return back()->withErrors(['error' => $e->getMessage()]);
@@ -317,9 +409,9 @@ class PloiController extends Controller
             if (isset($response['error'])) {
                 throw new \Exception($response['error']);
             }
-            
+
             $message = $response['message'] ?? 'Site instellingen bijgewerkt!';
-            
+
             return redirect()->back()->with('success', $message);
         } catch (\Exception $e) {
             return back()->withErrors(['error' => $e->getMessage()]);
@@ -337,11 +429,11 @@ class PloiController extends Controller
 
         try {
             $response = $this->ploi->createCertificate($serverId, $siteId, $validated);
-            
+
             if (isset($response['error'])) {
                 throw new \Exception($response['error']);
             }
-            
+
             return redirect()->back()->with('success', 'SSL certificaat wordt aangemaakt!');
         } catch (\Exception $e) {
             return back()->withErrors(['error' => $e->getMessage()]);
@@ -374,6 +466,21 @@ class PloiController extends Controller
             }
 
             return redirect()->back()->with('success', 'WordPress wordt geïnstalleerd!');
+        } catch (\Exception $e) {
+            return back()->withErrors(['error' => $e->getMessage()]);
+        }
+    }
+
+    public function deleteSite($serverId, $siteId)
+    {
+        try {
+            $response = $this->ploi->deleteSite($serverId, $siteId);
+
+            if (isset($response['error'])) {
+                throw new \Exception($response['error']);
+            }
+
+            return redirect()->route('ploi.servers')->with('success', 'Site succesvol verwijderd!');
         } catch (\Exception $e) {
             return back()->withErrors(['error' => $e->getMessage()]);
         }
