@@ -255,6 +255,43 @@ class PloiService
             ->json();
     }
 
+    public function runWpCliCommand($serverId, string $command)
+    {
+        return Http::withToken($this->apiToken)
+            ->post("{$this->apiUrl}/servers/{$serverId}/wp-cli/run", [
+                'command' => $command,
+            ])
+            ->json();
+    }
+
+    public function listBackupConfigurations()
+    {
+        return Http::withToken($this->apiToken)
+            ->get("{$this->apiUrl}/user/backup-configurations")
+            ->json();
+    }
+
+    public function listSiteFileBackups()
+    {
+        return Http::withToken($this->apiToken)
+            ->get("{$this->apiUrl}/backups/file")
+            ->json();
+    }
+
+    public function createSiteFileBackup(array $data)
+    {
+        return Http::withToken($this->apiToken)
+            ->post("{$this->apiUrl}/backups/file", $data)
+            ->json();
+    }
+
+    public function runSiteFileBackup($fileBackupId)
+    {
+        return Http::withToken($this->apiToken)
+            ->post("{$this->apiUrl}/backups/file/{$fileBackupId}/run")
+            ->json();
+    }
+
     public function getSystemUsers($serverId)
     {
         return Http::withToken($this->apiToken)

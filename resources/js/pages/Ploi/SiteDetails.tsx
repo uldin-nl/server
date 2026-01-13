@@ -1,6 +1,6 @@
 import AppLayout from '@/layouts/app-layout';
 import { router, usePage } from '@inertiajs/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 type Certificate = {
     id: number;
@@ -32,6 +32,26 @@ type Repository = {
     provider_id?: number;
 };
 
+type BackupConfiguration = {
+    id: number;
+    label?: string;
+    driver?: string;
+};
+
+type WpPackage = {
+    name: string;
+    version?: string;
+    status?: string;
+    update?: string;
+    update_version?: string;
+};
+
+type WpUpdates = {
+    core: Array<{ version?: string; update?: string; package?: string }>;
+    plugins: WpPackage[];
+    themes: WpPackage[];
+};
+
 type Props = {
     site: {
         id: number;
@@ -57,16 +77,51 @@ type Props = {
         databases?: Database[];
     };
     repositories: Repository[];
+    backupConfigurations: BackupConfiguration[];
 };
 
-export default function SiteDetails({ site, repositories = [] }: Props) {
+const getCsrfToken = () => {
+    const token = document
+        .querySelector('meta[name="csrf-token"]')
+        ?.getAttribute('content');
+    return token ?? '';
+};
+
+const postJson = async <T,>(
+    url: string,
+    body: Record<string, unknown>,
+): Promise<T> => {
+    const response = await fetch(url, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': getCsrfToken(),
+            'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+        throw new Error(`Request failed: ${response.status}`);
+    }
+
+    return response.json();
+};
+
+export default function SiteDetails({
+    site,
+    repositories = [],
+    backupConfigurations = [],
+}: Props) {
     const { errors, flash } = usePage().props as any;
     const [repository, setRepository] = useState(site.repository || '');
     const [branch, setBranch] = useState(site.branch || 'main');
     const [envContent, setEnvContent] = useState(site.env_content || '');
     const [deployScript, setDeployScript] = useState(site.deploy_script || '');
     const [activeTab, setActiveTab] = useState<
-        'deploy' | 'env' | 'script' | 'settings' | 'ssl'
+        'deploy' | 'env' | 'script' | 'settings' | 'ssl' | 'wordpress'
     >('deploy');
     const [showRepositoryForm, setShowRepositoryForm] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -88,6 +143,21 @@ export default function SiteDetails({ site, repositories = [] }: Props) {
     );
     const [certificateContent, setCertificateContent] = useState('');
     const [privateKey, setPrivateKey] = useState('');
+
+    const [wpLoading, setWpLoading] = useState(false);
+    const [wpUpdates, setWpUpdates] = useState<WpUpdates | null>(null);
+    const [wpError, setWpError] = useState<string | null>(null);
+    const [wpResult, setWpResult] = useState<string | null>(null);
+    const [selectedCore, setSelectedCore] = useState(false);
+    const [selectedPlugins, setSelectedPlugins] = useState<
+        Record<string, boolean>
+    >({});
+    const [selectedThemes, setSelectedThemes] = useState<
+        Record<string, boolean>
+    >({});
+    const [selectedBackupConfig, setSelectedBackupConfig] = useState<
+        number | ''
+    >(backupConfigurations[0]?.id ?? '');
 
     const handleConnectRepository = (e: { preventDefault: () => void }) => {
         e.preventDefault();
@@ -142,6 +212,118 @@ export default function SiteDetails({ site, repositories = [] }: Props) {
             data,
         );
     };
+
+    const handleFetchWpUpdates = async () => {
+        setWpError(null);
+        setWpResult(null);
+        setWpLoading(true);
+        try {
+            const data = await postJson<WpUpdates>(
+                `/ploi/servers/${site.server_id}/sites/${site.id}/wordpress/updates`,
+                {},
+            );
+
+            const plugins: WpPackage[] = Array.isArray(data.plugins)
+                ? data.plugins
+                : [];
+            const themes: WpPackage[] = Array.isArray(data.themes)
+                ? data.themes
+                : [];
+            const core: WpUpdates['core'] = Array.isArray(data.core)
+                ? data.core
+                : [];
+
+            const pluginSelections: Record<string, boolean> = {};
+            plugins.forEach((plugin) => {
+                const hasUpdate = plugin.update && plugin.update !== 'none';
+                pluginSelections[plugin.name] = Boolean(hasUpdate);
+            });
+
+            const themeSelections: Record<string, boolean> = {};
+            themes.forEach((theme) => {
+                const hasUpdate = theme.update && theme.update !== 'none';
+                themeSelections[theme.name] = Boolean(hasUpdate);
+            });
+
+            setSelectedCore(core.length > 0);
+            setSelectedPlugins(pluginSelections);
+            setSelectedThemes(themeSelections);
+            setWpUpdates({ core, plugins, themes });
+        } catch (error) {
+            setWpError(
+                error instanceof Error
+                    ? error.message
+                    : 'Update check mislukt',
+            );
+        } finally {
+            setWpLoading(false);
+        }
+    };
+
+    const handleRunWpUpdates = async () => {
+        setWpError(null);
+        setWpResult(null);
+
+        if (!selectedBackupConfig) {
+            setWpError('Selecteer eerst een backup configuratie.');
+            return;
+        }
+
+        setWpLoading(true);
+        try {
+            const plugins = Object.entries(selectedPlugins)
+                .filter(([, selected]) => selected)
+                .map(([name]) => name);
+            const themes = Object.entries(selectedThemes)
+                .filter(([, selected]) => selected)
+                .map(([name]) => name);
+
+            const response = await postJson<{
+                results?: Record<string, { message?: string; error?: string }>;
+            }>(
+                `/ploi/servers/${site.server_id}/sites/${site.id}/wordpress/updates/run`,
+                {
+                    core: selectedCore,
+                    plugins,
+                    themes,
+                    backup_configuration: selectedBackupConfig,
+                },
+            );
+
+            const resultLines: string[] = [];
+            const results = response.results ?? {};
+            Object.entries(results).forEach(([key, value]) => {
+                if (!value) {
+                    return;
+                }
+                const message = value.error ?? value.message ?? 'ok';
+                resultLines.push(`${key}: ${message}`);
+            });
+
+            setWpResult(
+                resultLines.length > 0
+                    ? resultLines.join('\n')
+                    : 'Updates gestart.',
+            );
+        } catch (error) {
+            setWpError(
+                error instanceof Error ? error.message : 'Update mislukt',
+            );
+        } finally {
+            setWpLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (
+            activeTab === 'wordpress' &&
+            site.project_type === 'wordpress' &&
+            !wpUpdates &&
+            !wpLoading
+        ) {
+            handleFetchWpUpdates();
+        }
+    }, [activeTab, site.project_type, wpLoading, wpUpdates]);
 
     const handleDeleteCertificate = (certificateId: number) => {
         if (confirm('Weet je zeker dat je dit certificaat wilt verwijderen?')) {
@@ -363,6 +545,18 @@ export default function SiteDetails({ site, repositories = [] }: Props) {
                     >
                         SSL Certificaten
                     </button>
+                    {site.project_type === 'wordpress' && (
+                        <button
+                            onClick={() => setActiveTab('wordpress')}
+                            className={`px-4 py-2 ${
+                                activeTab === 'wordpress'
+                                    ? 'border-b-2 border-blue-600 text-blue-600'
+                                    : 'text-gray-600'
+                            }`}
+                        >
+                            WordPress
+                        </button>
+                    )}
                     <button
                         onClick={() => setActiveTab('settings')}
                         className={`px-4 py-2 ${
@@ -374,6 +568,279 @@ export default function SiteDetails({ site, repositories = [] }: Props) {
                         Settings
                     </button>
                 </div>
+
+                {/* WordPress Tab */}
+                {activeTab === 'wordpress' &&
+                    site.project_type === 'wordpress' && (
+                        <div className="space-y-6">
+                            <div className="rounded-lg border border-gray-200 bg-white p-4">
+                                <div className="flex flex-wrap items-center justify-between gap-4">
+                                    <div>
+                                        <h3 className="text-lg font-semibold">
+                                            WordPress updates
+                                        </h3>
+                                        <p className="text-sm text-gray-600">
+                                            Check en update WordPress core,
+                                            plugins en themes via WP-CLI.
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={handleFetchWpUpdates}
+                                        disabled={wpLoading}
+                                        className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
+                                    >
+                                        {wpLoading
+                                            ? '⏳ Bezig...'
+                                            : '🔍 Check updates'}
+                                    </button>
+                                </div>
+                                {wpError && (
+                                    <p className="mt-3 text-sm text-red-600">
+                                        {wpError}
+                                    </p>
+                                )}
+                                {wpResult && (
+                                    <pre className="mt-3 whitespace-pre-wrap rounded bg-gray-50 p-3 text-sm text-gray-700">
+                                        {wpResult}
+                                    </pre>
+                                )}
+                            </div>
+
+                            <div className="rounded-lg border border-gray-200 bg-white p-4">
+                                <label className="mb-2 block text-sm font-medium">
+                                    Backup configuratie (verplicht)
+                                </label>
+                                {backupConfigurations.length > 0 ? (
+                                    <select
+                                        value={selectedBackupConfig}
+                                        onChange={(e) =>
+                                            setSelectedBackupConfig(
+                                                e.target.value
+                                                    ? Number(e.target.value)
+                                                    : '',
+                                            )
+                                        }
+                                        className="w-full rounded border p-2"
+                                    >
+                                        {backupConfigurations.map((config) => (
+                                            <option
+                                                key={config.id}
+                                                value={config.id}
+                                            >
+                                                {config.label ||
+                                                    `Backup #${config.id}`}
+                                                {config.driver
+                                                    ? ` (${config.driver})`
+                                                    : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                ) : (
+                                    <p className="text-sm text-yellow-700">
+                                        Geen backup configuraties gevonden in
+                                        Ploi.
+                                    </p>
+                                )}
+                            </div>
+
+                            {wpUpdates && (
+                                <div className="space-y-6">
+                                    <div className="rounded-lg border border-gray-200 bg-white p-4">
+                                        <div className="flex items-center justify-between">
+                                            <h4 className="text-base font-semibold">
+                                                WordPress core
+                                            </h4>
+                                            <label className="flex items-center gap-2 text-sm">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedCore}
+                                                    onChange={(e) =>
+                                                        setSelectedCore(
+                                                            e.target.checked,
+                                                        )
+                                                    }
+                                                    disabled={
+                                                        wpUpdates.core.length ===
+                                                        0
+                                                    }
+                                                />
+                                                Update core
+                                            </label>
+                                        </div>
+                                        {wpUpdates.core.length === 0 ? (
+                                            <p className="mt-2 text-sm text-gray-600">
+                                                Geen core updates beschikbaar.
+                                            </p>
+                                        ) : (
+                                            <p className="mt-2 text-sm text-gray-600">
+                                                {wpUpdates.core.length} update
+                                                beschikbaar.
+                                            </p>
+                                        )}
+                                    </div>
+
+                                    <div className="rounded-lg border border-gray-200 bg-white p-4">
+                                        <h4 className="text-base font-semibold">
+                                            Plugins
+                                        </h4>
+                                        {wpUpdates.plugins.length === 0 ? (
+                                            <p className="mt-2 text-sm text-gray-600">
+                                                Geen plugins gevonden.
+                                            </p>
+                                        ) : (
+                                            <div className="mt-3 space-y-2">
+                                                {wpUpdates.plugins.map(
+                                                    (plugin) => {
+                                                        const hasUpdate =
+                                                            plugin.update &&
+                                                            plugin.update !==
+                                                                'none';
+                                                        return (
+                                                            <label
+                                                                key={
+                                                                    plugin.name
+                                                                }
+                                                                className="flex items-center justify-between gap-4 rounded border p-2 text-sm"
+                                                            >
+                                                                <div className="min-w-0">
+                                                                    <p className="font-medium">
+                                                                        {
+                                                                            plugin.name
+                                                                        }
+                                                                    </p>
+                                                                    <p className="text-xs text-gray-600">
+                                                                        {plugin.version ||
+                                                                            '—'}
+                                                                        {hasUpdate &&
+                                                                            plugin.update_version
+                                                                            ? ` → ${plugin.update_version}`
+                                                                            : ''}
+                                                                    </p>
+                                                                </div>
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={
+                                                                        selectedPlugins[
+                                                                            plugin
+                                                                                .name
+                                                                        ] || false
+                                                                    }
+                                                                    onChange={(
+                                                                        e,
+                                                                    ) =>
+                                                                        setSelectedPlugins(
+                                                                            (
+                                                                                prev,
+                                                                            ) => ({
+                                                                                ...prev,
+                                                                                [plugin.name]:
+                                                                                    e
+                                                                                        .target
+                                                                                        .checked,
+                                                                            }),
+                                                                        )
+                                                                    }
+                                                                    disabled={
+                                                                        !hasUpdate
+                                                                    }
+                                                                />
+                                                            </label>
+                                                        );
+                                                    },
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="rounded-lg border border-gray-200 bg-white p-4">
+                                        <h4 className="text-base font-semibold">
+                                            Themes
+                                        </h4>
+                                        {wpUpdates.themes.length === 0 ? (
+                                            <p className="mt-2 text-sm text-gray-600">
+                                                Geen themes gevonden.
+                                            </p>
+                                        ) : (
+                                            <div className="mt-3 space-y-2">
+                                                {wpUpdates.themes.map(
+                                                    (theme) => {
+                                                        const hasUpdate =
+                                                            theme.update &&
+                                                            theme.update !==
+                                                                'none';
+                                                        return (
+                                                            <label
+                                                                key={theme.name}
+                                                                className="flex items-center justify-between gap-4 rounded border p-2 text-sm"
+                                                            >
+                                                                <div className="min-w-0">
+                                                                    <p className="font-medium">
+                                                                        {
+                                                                            theme.name
+                                                                        }
+                                                                    </p>
+                                                                    <p className="text-xs text-gray-600">
+                                                                        {theme.version ||
+                                                                            '—'}
+                                                                        {hasUpdate &&
+                                                                            theme.update_version
+                                                                            ? ` → ${theme.update_version}`
+                                                                            : ''}
+                                                                    </p>
+                                                                </div>
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={
+                                                                        selectedThemes[
+                                                                            theme
+                                                                                .name
+                                                                        ] || false
+                                                                    }
+                                                                    onChange={(
+                                                                        e,
+                                                                    ) =>
+                                                                        setSelectedThemes(
+                                                                            (
+                                                                                prev,
+                                                                            ) => ({
+                                                                                ...prev,
+                                                                                [theme.name]:
+                                                                                    e
+                                                                                        .target
+                                                                                        .checked,
+                                                                            }),
+                                                                        )
+                                                                    }
+                                                                    disabled={
+                                                                        !hasUpdate
+                                                                    }
+                                                                />
+                                                            </label>
+                                                        );
+                                                    },
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="flex justify-end">
+                                        <button
+                                            onClick={handleRunWpUpdates}
+                                            disabled={
+                                                wpLoading ||
+                                                !selectedBackupConfig
+                                            }
+                                            className="rounded bg-green-600 px-6 py-3 text-white hover:bg-green-700 disabled:opacity-50"
+                                        >
+                                            {wpLoading
+                                                ? '⏳ Bezig...'
+                                                : '🚀 Update geselecteerde items'}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                 {/* Deployment Tab */}
                 {activeTab === 'deploy' && (

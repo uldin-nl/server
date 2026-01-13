@@ -6,6 +6,7 @@ use App\Services\PloiService;
 use Inertia\Inertia;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Log;
 
 class PloiController extends Controller
 {
@@ -270,9 +271,17 @@ class PloiController extends Controller
             $siteData['databases'] = [];
         }
 
+        $backupConfigurations = [];
+        try {
+            $backupConfigurations = $this->ploi->listBackupConfigurations()['data'] ?? [];
+        } catch (\Exception $e) {
+            $backupConfigurations = [];
+        }
+
         return Inertia::render('Ploi/SiteDetails', [
             'site' => $siteData,
-            'repositories' => $repositories
+            'repositories' => $repositories,
+            'backupConfigurations' => $backupConfigurations,
         ]);
     }
 
@@ -471,6 +480,105 @@ class PloiController extends Controller
         }
     }
 
+    public function getWordPressUpdates(Request $request, $serverId, $siteId)
+    {
+        try {
+            $site = $this->ploi->getSite($serverId, $siteId);
+            $siteData = $site['data'] ?? [];
+            $path = $this->resolveWpCliPath($serverId, $siteData);
+            $pathArg = escapeshellarg($path);
+
+            $coreUpdates = $this->runWpCliJson(
+                $serverId,
+                "core check-update --format=json --path={$pathArg} --skip-plugins --skip-themes"
+            );
+            $plugins = $this->runWpCliJson(
+                $serverId,
+                "plugin list --format=json --fields=name,version,status,update,update_version --path={$pathArg} --skip-plugins --skip-themes"
+            );
+            $themes = $this->runWpCliJson(
+                $serverId,
+                "theme list --format=json --fields=name,version,status,update,update_version --path={$pathArg} --skip-plugins --skip-themes"
+            );
+
+            return response()->json([
+                'core' => $coreUpdates,
+                'plugins' => $plugins,
+                'themes' => $themes,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('WP updates check failed', [
+                'server_id' => $serverId,
+                'site_id' => $siteId,
+                'message' => $e->getMessage(),
+            ]);
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function runWordPressUpdates(Request $request, $serverId, $siteId)
+    {
+        $validated = $request->validate([
+            'core' => 'boolean',
+            'plugins' => 'array',
+            'plugins.*' => 'string',
+            'themes' => 'array',
+            'themes.*' => 'string',
+            'backup_configuration' => 'required|integer',
+        ]);
+
+        try {
+            $site = $this->ploi->getSite($serverId, $siteId);
+            $siteData = $site['data'] ?? [];
+            $path = $this->resolveWpCliPath($serverId, $siteData);
+            $pathArg = escapeshellarg($path);
+
+            $this->runBackupForSite(
+                (int) $validated['backup_configuration'],
+                $serverId,
+                $siteId,
+                $path
+            );
+
+            $results = [];
+            if (!empty($validated['core'])) {
+                $results['core'] = $this->ploi->runWpCliCommand(
+                    $serverId,
+                    "core update --path={$pathArg} --skip-plugins --skip-themes"
+                );
+            }
+
+            $plugins = $validated['plugins'] ?? [];
+            if (!empty($plugins)) {
+                $pluginList = implode(' ', array_map('escapeshellarg', $plugins));
+                $results['plugins'] = $this->ploi->runWpCliCommand(
+                    $serverId,
+                    "plugin update {$pluginList} --path={$pathArg} --skip-plugins --skip-themes"
+                );
+            }
+
+            $themes = $validated['themes'] ?? [];
+            if (!empty($themes)) {
+                $themeList = implode(' ', array_map('escapeshellarg', $themes));
+                $results['themes'] = $this->ploi->runWpCliCommand(
+                    $serverId,
+                    "theme update {$themeList} --path={$pathArg} --skip-plugins --skip-themes"
+                );
+            }
+
+            return response()->json([
+                'results' => $results,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('WP updates run failed', [
+                'server_id' => $serverId,
+                'site_id' => $siteId,
+                'message' => $e->getMessage(),
+            ]);
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
     public function deleteSite($serverId, $siteId)
     {
         try {
@@ -483,6 +591,176 @@ class PloiController extends Controller
             return redirect()->route('ploi.servers')->with('success', 'Site succesvol verwijderd!');
         } catch (\Exception $e) {
             return back()->withErrors(['error' => $e->getMessage()]);
+        }
+    }
+
+    private function getWpCliPath(array $siteData): string
+    {
+        $systemUser = $siteData['system_user'] ?? 'ploi';
+        $domain = $siteData['domain'] ?? $siteData['name'] ?? '';
+        $projectRoot = $siteData['project_root'] ?? $siteData['web_directory'] ?? '/';
+
+        if (!$domain) {
+            throw new \Exception('Site domein ontbreekt voor WP-CLI path.');
+        }
+
+        if (!str_starts_with($projectRoot, '/')) {
+            $projectRoot = '/' . $projectRoot;
+        }
+
+        $basePath = "/home/{$systemUser}/{$domain}";
+        if ($projectRoot === '/') {
+            return $basePath;
+        }
+
+        return rtrim($basePath, '/') . $projectRoot;
+    }
+
+    private function runWpCliJson($serverId, string $command)
+    {
+        $response = $this->ploi->runWpCliCommand($serverId, $command);
+
+        if (isset($response['error'])) {
+            throw new \Exception($response['error']);
+        }
+
+        $message = $response['message'] ?? '';
+        if ($this->isWpCliErrorMessage($message)) {
+            throw new \Exception($message);
+        }
+        $decoded = $this->decodeJsonMessage($message);
+
+        return $decoded ?? $message;
+    }
+
+    private function decodeJsonMessage(string $message): ?array
+    {
+        $trimmed = trim($message);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        $decoded = json_decode($trimmed, true);
+        if (json_last_error() === JSON_ERROR_NONE) {
+            return $decoded;
+        }
+
+        $jsonStart = strpbrk($trimmed, '[{');
+        if ($jsonStart === false) {
+            return null;
+        }
+
+        $decoded = json_decode($jsonStart, true);
+        if (json_last_error() === JSON_ERROR_NONE) {
+            return $decoded;
+        }
+
+        return null;
+    }
+
+    private function isWpCliErrorMessage(string $message): bool
+    {
+        return stripos($message, 'Error:') !== false;
+    }
+
+    private function resolveWpCliPath($serverId, array $siteData): string
+    {
+        $systemUser = $siteData['system_user'] ?? 'ploi';
+        $domain = $siteData['domain'] ?? $siteData['name'] ?? '';
+        $projectRoot = $siteData['project_root'] ?? $siteData['web_directory'] ?? '/';
+
+        if (!$domain) {
+            throw new \Exception('Site domein ontbreekt voor WP-CLI path.');
+        }
+
+        if (!str_starts_with($projectRoot, '/')) {
+            $projectRoot = '/' . $projectRoot;
+        }
+
+        $basePath = "/home/{$systemUser}/{$domain}";
+        $primaryPath = $projectRoot === '/'
+            ? $basePath
+            : rtrim($basePath, '/') . $projectRoot;
+
+        $candidates = [
+            $primaryPath,
+            $basePath,
+            rtrim($basePath, '/') . '/public',
+            rtrim($basePath, '/') . '/public_html',
+        ];
+
+        $seen = [];
+        foreach ($candidates as $candidate) {
+            $candidate = rtrim($candidate, '/');
+            if (isset($seen[$candidate]) || $candidate === '') {
+                continue;
+            }
+            $seen[$candidate] = true;
+
+            if ($this->wpCliIsInstalled($serverId, $candidate)) {
+                return $candidate;
+            }
+        }
+
+        throw new \Exception('Geen WordPress installatie gevonden voor WP-CLI path.');
+    }
+
+    private function wpCliIsInstalled($serverId, string $path): bool
+    {
+        $pathArg = escapeshellarg($path);
+        $response = $this->ploi->runWpCliCommand(
+            $serverId,
+            "core is-installed --path={$pathArg} --skip-plugins --skip-themes"
+        );
+
+        if (isset($response['error'])) {
+            return false;
+        }
+
+        $message = $response['message'] ?? '';
+        if ($this->isWpCliErrorMessage($message)) {
+            return false;
+        }
+
+        return ($response['status'] ?? 'ok') === 'ok';
+    }
+
+    private function runBackupForSite(int $backupConfigurationId, $serverId, $siteId, string $path): void
+    {
+        $backups = $this->ploi->listSiteFileBackups();
+        $backupData = $backups['data'] ?? [];
+        $backup = collect($backupData)->first(function ($item) use ($siteId, $serverId) {
+            $matchesSite = isset($item['site_id']) && (int) $item['site_id'] === (int) $siteId;
+            $matchesServer = !isset($item['server_id']) || (int) $item['server_id'] === (int) $serverId;
+            return $matchesSite && $matchesServer;
+        });
+
+        if (!$backup) {
+            $createResponse = $this->ploi->createSiteFileBackup([
+                'backup_configuration' => $backupConfigurationId,
+                'server' => (int) $serverId,
+                'sites' => [(int) $siteId],
+                'interval' => 0,
+                'path' => [
+                    (string) $siteId => $path,
+                ],
+            ]);
+
+            if (isset($createResponse['error'])) {
+                throw new \Exception($createResponse['error']);
+            }
+
+            $backup = $createResponse['data'] ?? null;
+        }
+
+        $backupId = $backup['id'] ?? null;
+        if (!$backupId) {
+            throw new \Exception('Backup ID niet gevonden.');
+        }
+
+        $runResponse = $this->ploi->runSiteFileBackup($backupId);
+        if (isset($runResponse['error'])) {
+            throw new \Exception($runResponse['error']);
         }
     }
 }
