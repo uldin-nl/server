@@ -39,4 +39,8 @@ return [
         'token' => env('PLOI_API_TOKEN'),
     ],
 
+    'github' => [
+        'uldin_token' => env('GITHUB_ULDIN_TOKEN'),
+    ],
+
 ];
