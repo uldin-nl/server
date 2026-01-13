@@ -35,13 +35,13 @@ class PloiService
             ->json();
     }
 
-    public function getSites($serverId, $page = 1, $search = '')
+    public function getSites($serverId, $page = 1, $search = '', $perPage = 15)
     {
         $url = "{$this->apiUrl}/servers/{$serverId}/sites";
         
         $params = [
             'page' => $page,
-            'per_page' => 15,
+            'per_page' => $perPage,
         ];
 
         if ($search) {
