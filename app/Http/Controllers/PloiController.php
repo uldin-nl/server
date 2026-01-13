@@ -192,10 +192,25 @@ class PloiController extends Controller
         ]);
 
         try {
+            $repository = $validated['repository'];
+            $provider = 'github';
+            $name = $repository;
+
+            // Als het een uldin-nl repository is, gebruik custom provider met token
+            if (str_starts_with($repository, 'uldin-nl/')) {
+                $provider = 'custom';
+                $token = config('services.github.uldin_token');
+
+                if ($token) {
+                    $repoName = str_replace('uldin-nl/', '', $repository);
+                    $name = "https://{$token}@github.com/uldin-nl/{$repoName}.git";
+                }
+            }
+
             $response = $this->ploi->connectGit($serverId, $siteId, [
-                'provider' => 'github',
+                'provider' => $provider,
                 'branch' => $validated['branch'],
-                'name' => $validated['repository'],
+                'name' => $name,
             ]);
 
             if (isset($response['error']) || isset($response['message'])) {
