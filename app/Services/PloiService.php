@@ -238,4 +238,13 @@ class PloiService
             ->get("{$this->apiUrl}/servers/{$serverId}/databases/{$databaseId}/users/{$userId}")
             ->json();
     }
+
+    public function installWordPress($serverId, $siteId, $createDatabase = true)
+    {
+        return Http::withToken($this->apiToken)
+            ->post("{$this->apiUrl}/servers/{$serverId}/sites/{$siteId}/wordpress", [
+                'create_database' => $createDatabase
+            ])
+            ->json();
+    }
 }

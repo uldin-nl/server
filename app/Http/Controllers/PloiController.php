@@ -352,12 +352,28 @@ class PloiController extends Controller
     {
         try {
             $response = $this->ploi->deleteCertificate($serverId, $siteId, $certificateId);
-            
+
             if (isset($response['error'])) {
                 throw new \Exception($response['error']);
             }
-            
+
             return redirect()->back()->with('success', 'SSL certificaat verwijderd!');
+        } catch (\Exception $e) {
+            return back()->withErrors(['error' => $e->getMessage()]);
+        }
+    }
+
+    public function installWordPress(Request $request, $serverId, $siteId)
+    {
+        try {
+            $createDatabase = $request->input('create_database', false);
+            $response = $this->ploi->installWordPress($serverId, $siteId, $createDatabase);
+
+            if (isset($response['error'])) {
+                throw new \Exception($response['error']);
+            }
+
+            return redirect()->back()->with('success', 'WordPress wordt geïnstalleerd!');
         } catch (\Exception $e) {
             return back()->withErrors(['error' => $e->getMessage()]);
         }

@@ -68,6 +68,7 @@ export default function SiteDetails({ site, repositories = [] }: Props) {
     const [activeTab, setActiveTab] = useState<
         'deploy' | 'env' | 'script' | 'settings' | 'ssl'
     >('deploy');
+    const [showRepositoryForm, setShowRepositoryForm] = useState(false);
 
     // Settings form state
     const [rootDomain, setRootDomain] = useState(site.domain || '');
@@ -399,6 +400,151 @@ export default function SiteDetails({ site, repositories = [] }: Props) {
                                         ? '⏳ Deploying...'
                                         : '🚀 Deploy Nu'}
                                 </button>
+                            </div>
+                        ) : site.project_type === 'wordpress' ? (
+                            <div className="space-y-4">
+                                <div className="rounded-lg bg-blue-50 p-4">
+                                    <h3 className="mb-2 font-semibold text-blue-800">
+                                        WordPress Site Klaar voor Custom Installatie
+                                    </h3>
+                                    <p className="text-blue-700">
+                                        Je WordPress site is aangemaakt. Voer je custom installatie uit via de server tool.
+                                    </p>
+                                    <p className="mt-2 text-sm text-blue-600">
+                                        Site: {site.domain}
+                                    </p>
+                                </div>
+
+                                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                                    <button
+                                        onClick={() => setShowRepositoryForm(!showRepositoryForm)}
+                                        className="flex w-full items-center justify-between text-left"
+                                    >
+                                        <span className="font-semibold">
+                                            Optioneel: Repository Koppelen
+                                        </span>
+                                        <span className="text-gray-500">
+                                            {showRepositoryForm ? '▼' : '▶'}
+                                        </span>
+                                    </button>
+                                    <p className="mt-1 text-sm text-gray-600">
+                                        Koppel een Git repository voor custom themes of plugins
+                                    </p>
+                                </div>
+
+                                {showRepositoryForm && (
+                                    <form
+                                        onSubmit={handleConnectRepository}
+                                        className="space-y-4 rounded-lg border border-gray-200 bg-white p-4"
+                                    >
+                                        <h3 className="font-semibold">
+                                            GitHub Repository Koppelen
+                                        </h3>
+
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium">
+                                                Repository
+                                            </label>
+
+                                            {repositories.length > 0 ? (
+                                                <>
+                                                    <select
+                                                        value={repository}
+                                                        onChange={(e) =>
+                                                            setRepository(
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                        className="w-full rounded border p-2"
+                                                        required
+                                                    >
+                                                        <option value="">
+                                                            Selecteer een repository...
+                                                        </option>
+                                                        {repositories.map((repo) => (
+                                                            <option
+                                                                key={`${repo.provider_id}-${repo.name}`}
+                                                                value={repo.name}
+                                                            >
+                                                                {repo.label}{' '}
+                                                                {repo.provider_name && (
+                                                                    <span className="text-gray-500">
+                                                                        (
+                                                                        {
+                                                                            repo.provider_name
+                                                                        }
+                                                                        )
+                                                                    </span>
+                                                                )}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                    <p className="mt-1 text-sm text-gray-500">
+                                                        Of voer hieronder handmatig een
+                                                        repository in
+                                                    </p>
+                                                    <input
+                                                        type="text"
+                                                        placeholder="username/repository"
+                                                        value={repository}
+                                                        onChange={(e) =>
+                                                            setRepository(
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                        className="mt-2 w-full rounded border p-2"
+                                                    />
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <input
+                                                        type="text"
+                                                        placeholder="username/repository"
+                                                        value={repository}
+                                                        onChange={(e) =>
+                                                            setRepository(
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                        className="w-full rounded border p-2"
+                                                        required
+                                                    />
+                                                    <p className="mt-1 text-sm text-gray-500">
+                                                        Formaat:
+                                                        gebruikersnaam/repository-naam
+                                                    </p>
+                                                </>
+                                            )}
+                                        </div>
+
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium">
+                                                Branch
+                                            </label>
+                                            <input
+                                                type="text"
+                                                placeholder="main"
+                                                value={branch}
+                                                onChange={(e) =>
+                                                    setBranch(e.target.value)
+                                                }
+                                                className="w-full rounded border p-2"
+                                                required
+                                            />
+                                            <p className="mt-1 text-sm text-gray-500">
+                                                Standaard branches: main, master,
+                                                develop
+                                            </p>
+                                        </div>
+
+                                        <button
+                                            type="submit"
+                                            className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+                                        >
+                                            Koppel Repository
+                                        </button>
+                                    </form>
+                                )}
                             </div>
                         ) : (
                             <form
