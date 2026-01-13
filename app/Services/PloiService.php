@@ -176,6 +176,15 @@ class PloiService
             ->json();
     }
 
+    public function createSiteAlias($serverId, $siteId, string $domain)
+    {
+        return Http::withToken($this->apiToken)
+            ->post("{$this->apiUrl}/servers/{$serverId}/sites/{$siteId}/aliases", [
+                'domain' => $domain,
+            ])
+            ->json();
+    }
+
     public function getCertificates($serverId, $siteId)
     {
         return Http::withToken($this->apiToken)

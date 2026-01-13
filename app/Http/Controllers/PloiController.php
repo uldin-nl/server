@@ -564,12 +564,32 @@ class PloiController extends Controller
         ]);
 
         try {
+            $currentSite = $this->ploi->getSite($serverId, $siteId);
+            $currentDomain = $currentSite['data']['domain'] ?? $currentSite['data']['root_domain'] ?? null;
             $data = array_filter($validated, fn($value) => $value !== null && $value !== '');
 
             $response = $this->ploi->updateSite($serverId, $siteId, $data);
 
             if (isset($response['error'])) {
                 throw new \Exception($response['error']);
+            }
+
+            $newDomain = $data['root_domain'] ?? null;
+            if ($newDomain && $currentDomain && $currentDomain !== $newDomain) {
+                if (str_ends_with($currentDomain, '.uldin.cloud')) {
+                    try {
+                        $this->ploi->createSiteAlias($serverId, $siteId, $currentDomain);
+                    } catch (\Exception $e) {
+                    }
+                }
+
+                if (!str_starts_with($newDomain, 'www.')) {
+                    $wwwDomain = 'www.' . $newDomain;
+                    try {
+                        $this->ploi->createSiteAlias($serverId, $siteId, $wwwDomain);
+                    } catch (\Exception $e) {
+                    }
+                }
             }
 
             $message = $response['message'] ?? 'Site instellingen bijgewerkt!';
