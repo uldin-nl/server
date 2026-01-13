@@ -25,7 +25,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         
         // Repository koppelen
         Route::post('/servers/{serverId}/sites/{siteId}/repository', [PloiController::class, 'connectRepository']);
-        
+
+        // WordPress installatie
+        Route::post('/servers/{serverId}/sites/{siteId}/wordpress', [PloiController::class, 'installWordPress']);
+
         // Deploy
         Route::post('/servers/{serverId}/sites/{siteId}/deploy', [PloiController::class, 'deploy']);
         
