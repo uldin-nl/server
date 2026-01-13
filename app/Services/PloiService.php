@@ -264,6 +264,13 @@ class PloiService
             ->json();
     }
 
+    public function deleteDatabase($serverId, $databaseId)
+    {
+        return Http::withToken($this->apiToken)
+            ->delete("{$this->apiUrl}/servers/{$serverId}/databases/{$databaseId}")
+            ->json();
+    }
+
     public function runWpCliCommand($serverId, string $command)
     {
         return Http::withToken($this->apiToken)

@@ -755,6 +755,22 @@ class PloiController extends Controller
     public function deleteSite($serverId, $siteId)
     {
         try {
+            try {
+                $databasesResponse = $this->ploi->getDatabases($serverId);
+                $allDatabases = $databasesResponse['data'] ?? [];
+                $siteDatabases = array_filter($allDatabases, function ($db) use ($siteId) {
+                    return isset($db['site_id']) && $db['site_id'] == $siteId;
+                });
+
+                foreach ($siteDatabases as $db) {
+                    if (!isset($db['id'])) {
+                        continue;
+                    }
+                    $this->ploi->deleteDatabase($serverId, $db['id']);
+                }
+            } catch (\Exception $e) {
+            }
+
             $response = $this->ploi->deleteSite($serverId, $siteId);
 
             if (isset($response['error'])) {
