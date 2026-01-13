@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\PloiController;
 
 Route::get('/', function () {
@@ -9,9 +10,7 @@ Route::get('/', function () {
 })->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
-    Route::get('dashboard', function () {
-        return Inertia::render('dashboard');
-    })->name('dashboard');
+    Route::get('dashboard', DashboardController::class)->name('dashboard');
 
     Route::get('/ploi/servers', [PloiController::class, 'index'])->name('ploi.servers');
     Route::get('/ploi/sites', [PloiController::class, 'allSites'])->name('ploi.sites');

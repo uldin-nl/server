@@ -35,13 +35,13 @@ class PloiService
             ->json();
     }
 
-    public function getSites($serverId, $page = 1, $search = '')
+    public function getSites($serverId, $page = 1, $search = '', $perPage = 15)
     {
         $url = "{$this->apiUrl}/servers/{$serverId}/sites";
         
         $params = [
             'page' => $page,
-            'per_page' => 15,
+            'per_page' => $perPage,
         ];
 
         if ($search) {
@@ -173,6 +173,15 @@ class PloiService
     {
         return Http::withToken($this->apiToken)
             ->patch("{$this->apiUrl}/servers/{$serverId}/sites/{$siteId}", $data)
+            ->json();
+    }
+
+    public function createSiteAlias($serverId, $siteId, string $domain)
+    {
+        return Http::withToken($this->apiToken)
+            ->post("{$this->apiUrl}/servers/{$serverId}/sites/{$siteId}/aliases", [
+                'domain' => $domain,
+            ])
             ->json();
     }
 

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\PloiService;
+use App\Models\SiteAccessDetail;
 use Inertia\Inertia;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -205,6 +206,50 @@ class PloiController extends Controller
                 'site_id' => $siteId,
             ]);
 
+            $serverData = null;
+            try {
+                $server = $this->ploi->getServer($serverId);
+                $serverData = $server['data'] ?? null;
+            } catch (\Exception $e) {
+                $serverData = null;
+            }
+
+            $databaseData = $databaseResponse['data'] ?? [];
+            $serverHost = $serverData['name'] ?? null;
+            $serverIp = $serverData['ip_address'] ?? null;
+            $dbHost = $serverIp;
+            $dbPort = $databaseData['port'] ?? 3306;
+            $dbUser = $databaseData['user'] ?? $databaseData['username'] ?? $dbName;
+            $dbPasswordValue = $databaseData['password'] ?? $dbPassword;
+            $dbNameValue = $databaseData['name'] ?? $dbName;
+            $dbUrl = $dbHost
+                ? sprintf(
+                    'mysql://%s:%s@%s:%s/%s',
+                    $dbUser,
+                    $dbPasswordValue,
+                    $dbHost,
+                    $dbPort,
+                    $dbNameValue
+                )
+                : null;
+
+            SiteAccessDetail::updateOrCreate(
+                ['site_id' => $siteId],
+                [
+                    'server_id' => $serverId,
+                    'server_host' => $serverHost,
+                    'server_ip' => $serverIp,
+                    'ssh_user' => $validated['system_user'],
+                    'database_id' => $databaseData['id'] ?? null,
+                    'db_name' => $dbNameValue,
+                    'db_user' => $dbUser,
+                    'db_password' => $dbPasswordValue,
+                    'db_host' => $dbHost,
+                    'db_port' => $dbPort,
+                    'db_url' => $dbUrl,
+                ]
+            );
+
             return redirect()
                 ->route('ploi.sites.show', ['serverId' => $serverId, 'siteId' => $siteId])
                 ->with('success', "Site {$domain} succesvol aangemaakt met database!");
@@ -218,6 +263,15 @@ class PloiController extends Controller
         $site = $this->ploi->getSite($serverId, $siteId);
         $siteData = $site['data'] ?? [];
         $siteData['server_id'] = $serverId;
+        $serverData = null;
+        $accessDetail = SiteAccessDetail::where('site_id', $siteId)->first();
+
+        try {
+            $server = $this->ploi->getServer($serverId);
+            $serverData = $server['data'] ?? null;
+        } catch (\Exception $e) {
+            $serverData = null;
+        }
 
         $repositories = [];
         try {
@@ -266,9 +320,107 @@ class PloiController extends Controller
                 return isset($db['site_id']) && $db['site_id'] == $siteId;
             });
 
-            $siteData['databases'] = array_values($siteDatabases);
+            $siteData['databases'] = array_values(array_map(function ($db) use ($serverId, $accessDetail, $siteId) {
+                try {
+                    $dbDetails = $this->ploi->getDatabase($serverId, $db['id']);
+                    $detailData = $dbDetails['data'] ?? [];
+                    $storedMatches = $accessDetail
+                        && (
+                            ($accessDetail->database_id && $accessDetail->database_id == $db['id'])
+                            || ($accessDetail->db_name && $accessDetail->db_name === ($db['name'] ?? null))
+                        );
+
+                    $merged = array_merge($db, [
+                        'user' => $detailData['user'] ?? $detailData['username'] ?? $db['user'] ?? $db['username'] ?? null,
+                        'password' => $detailData['password'] ?? $db['password'] ?? null,
+                        'host' => $detailData['host'] ?? $db['host'] ?? null,
+                        'port' => $detailData['port'] ?? $db['port'] ?? null,
+                    ]);
+
+                    if ($storedMatches && $accessDetail) {
+                        $merged['user'] = $merged['user'] ?? $accessDetail->db_user;
+                        $merged['password'] = $merged['password'] ?? $accessDetail->db_password;
+                        $merged['host'] = $merged['host'] ?? $accessDetail->db_host;
+                        $merged['port'] = $merged['port'] ?? $accessDetail->db_port;
+                    }
+
+                    return $merged;
+                } catch (\Exception $e) {
+                    if ($accessDetail && $accessDetail->db_name === ($db['name'] ?? null)) {
+                        $db['user'] = $db['user'] ?? $accessDetail->db_user;
+                        $db['password'] = $db['password'] ?? $accessDetail->db_password;
+                        $db['host'] = $db['host'] ?? $accessDetail->db_host;
+                        $db['port'] = $db['port'] ?? $accessDetail->db_port;
+                    }
+                    return $db;
+                }
+            }, $siteDatabases));
         } catch (\Exception $e) {
             $siteData['databases'] = [];
+        }
+
+        if (empty($siteData['databases']) && $accessDetail && $accessDetail->db_name) {
+            $siteData['databases'] = [[
+                'id' => $accessDetail->database_id,
+                'type' => 'mysql',
+                'name' => $accessDetail->db_name,
+                'server_id' => $serverId,
+                'site_id' => $siteId,
+                'status' => 'active',
+                'created_at' => $accessDetail->created_at,
+                'user' => $accessDetail->db_user,
+                'password' => $accessDetail->db_password,
+                'host' => $accessDetail->db_host,
+                'port' => $accessDetail->db_port,
+            ]];
+        }
+
+        $serverPayload = $serverData ?? [];
+        if ($accessDetail) {
+            if (!($serverPayload['name'] ?? null) && $accessDetail->server_host) {
+                $serverPayload['name'] = $accessDetail->server_host;
+            }
+            if (!($serverPayload['ip_address'] ?? null) && $accessDetail->server_ip) {
+                $serverPayload['ip_address'] = $accessDetail->server_ip;
+            }
+            if (!($siteData['system_user'] ?? null) && $accessDetail->ssh_user) {
+                $siteData['system_user'] = $accessDetail->ssh_user;
+            }
+        }
+
+        if (!empty($siteData['databases']) && $accessDetail) {
+            $firstDb = $siteData['databases'][0];
+            $dbUser = $firstDb['user'] ?? $accessDetail->db_user;
+            $dbPassword = $firstDb['password'] ?? $accessDetail->db_password;
+            $dbHost = $firstDb['host'] ?? $accessDetail->db_host ?? ($serverPayload['ip_address'] ?? null);
+            $dbPort = $firstDb['port'] ?? $accessDetail->db_port ?? 3306;
+            $dbName = $firstDb['name'] ?? $accessDetail->db_name;
+            $dbUrl = ($dbUser && $dbPassword && $dbHost && $dbName)
+                ? sprintf('mysql://%s:%s@%s:%s/%s', $dbUser, $dbPassword, $dbHost, $dbPort, $dbName)
+                : $accessDetail->db_url;
+
+            $accessDetail->fill(array_filter([
+                'server_id' => $serverId,
+                'server_host' => $serverPayload['name'] ?? null,
+                'server_ip' => $serverPayload['ip_address'] ?? null,
+                'ssh_user' => $siteData['system_user'] ?? null,
+                'database_id' => $firstDb['id'] ?? $accessDetail->database_id,
+                'db_name' => $dbName,
+                'db_user' => $dbUser,
+                'db_password' => $dbPassword,
+                'db_host' => $dbHost,
+                'db_port' => $dbPort,
+                'db_url' => $dbUrl,
+            ], fn($value) => $value !== null && $value !== ''));
+            $accessDetail->save();
+        } elseif (!$accessDetail) {
+            SiteAccessDetail::create([
+                'server_id' => $serverId,
+                'site_id' => $siteId,
+                'server_host' => $serverPayload['name'] ?? null,
+                'server_ip' => $serverPayload['ip_address'] ?? null,
+                'ssh_user' => $siteData['system_user'] ?? null,
+            ]);
         }
 
         $backupConfigurations = [];
@@ -280,6 +432,7 @@ class PloiController extends Controller
 
         return Inertia::render('Ploi/SiteDetails', [
             'site' => $siteData,
+            'server' => !empty($serverPayload) ? $serverPayload : null,
             'repositories' => $repositories,
             'backupConfigurations' => $backupConfigurations,
         ]);
@@ -411,12 +564,32 @@ class PloiController extends Controller
         ]);
 
         try {
+            $currentSite = $this->ploi->getSite($serverId, $siteId);
+            $currentDomain = $currentSite['data']['domain'] ?? $currentSite['data']['root_domain'] ?? null;
             $data = array_filter($validated, fn($value) => $value !== null && $value !== '');
 
             $response = $this->ploi->updateSite($serverId, $siteId, $data);
 
             if (isset($response['error'])) {
                 throw new \Exception($response['error']);
+            }
+
+            $newDomain = $data['root_domain'] ?? null;
+            if ($newDomain && $currentDomain && $currentDomain !== $newDomain) {
+                if (str_ends_with($currentDomain, '.uldin.cloud')) {
+                    try {
+                        $this->ploi->createSiteAlias($serverId, $siteId, $currentDomain);
+                    } catch (\Exception $e) {
+                    }
+                }
+
+                if (!str_starts_with($newDomain, 'www.')) {
+                    $wwwDomain = 'www.' . $newDomain;
+                    try {
+                        $this->ploi->createSiteAlias($serverId, $siteId, $wwwDomain);
+                    } catch (\Exception $e) {
+                    }
+                }
             }
 
             $message = $response['message'] ?? 'Site instellingen bijgewerkt!';
