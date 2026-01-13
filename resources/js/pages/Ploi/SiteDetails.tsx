@@ -22,6 +22,11 @@ type Database = {
     status: string;
     description?: string;
     created_at: string;
+    user?: string;
+    username?: string;
+    password?: string;
+    host?: string;
+    port?: number;
 };
 
 type Repository = {
@@ -76,6 +81,13 @@ type Props = {
         certificates?: Certificate[];
         databases?: Database[];
     };
+    server?: {
+        id?: number;
+        name?: string;
+        host?: string;
+        ip_address?: string;
+        ip?: string;
+    } | null;
     repositories: Repository[];
     backupConfigurations: BackupConfiguration[];
 };
@@ -112,6 +124,7 @@ const postJson = async <T,>(
 
 export default function SiteDetails({
     site,
+    server,
     repositories = [],
     backupConfigurations = [],
 }: Props) {
@@ -121,7 +134,7 @@ export default function SiteDetails({
     const [envContent, setEnvContent] = useState(site.env_content || '');
     const [deployScript, setDeployScript] = useState(site.deploy_script || '');
     const [activeTab, setActiveTab] = useState<
-        'deploy' | 'env' | 'script' | 'settings' | 'ssl' | 'wordpress'
+        'deploy' | 'env' | 'script' | 'settings' | 'ssl' | 'wordpress' | 'access'
     >('deploy');
     const [showRepositoryForm, setShowRepositoryForm] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -158,6 +171,10 @@ export default function SiteDetails({
     const [selectedBackupConfig, setSelectedBackupConfig] = useState<
         number | ''
     >(backupConfigurations[0]?.id ?? '');
+
+    const serverIp = server?.ip_address || server?.ip || '';
+    const serverHost = server?.host || server?.name || '';
+    const sftpUser = site.system_user || 'ploi';
 
     const handleConnectRepository = (e: { preventDefault: () => void }) => {
         e.preventDefault();
@@ -486,16 +503,6 @@ export default function SiteDetails({
                                 </div>
                             ))}
                         </div>
-                        <div className="mt-3 rounded bg-yellow-50 p-3">
-                            <p className="text-sm text-yellow-800">
-                                💡 <strong>Tip:</strong> De database credentials
-                                zijn hetzelfde als de database naam. Gebruik{' '}
-                                <code className="rounded bg-yellow-100 px-1">
-                                    {site.databases[0]?.name}
-                                </code>{' '}
-                                als database naam, gebruikersnaam én wachtwoord.
-                            </p>
-                        </div>
                     </div>
                 )}
 
@@ -545,6 +552,16 @@ export default function SiteDetails({
                     >
                         SSL Certificaten
                     </button>
+                    <button
+                        onClick={() => setActiveTab('access')}
+                        className={`px-4 py-2 ${
+                            activeTab === 'access'
+                                ? 'border-b-2 border-blue-600 text-blue-600'
+                                : 'text-gray-600'
+                        }`}
+                    >
+                        Server Details
+                    </button>
                     {site.project_type === 'wordpress' && (
                         <button
                             onClick={() => setActiveTab('wordpress')}
@@ -568,6 +585,136 @@ export default function SiteDetails({
                         Settings
                     </button>
                 </div>
+
+                {/* Server Details Tab */}
+                {activeTab === 'access' && (
+                    <div className="space-y-6">
+                        <div className="rounded-lg border border-gray-200 bg-white p-4">
+                            <h3 className="mb-4 text-lg font-semibold">
+                                Server details
+                            </h3>
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                <div>
+                                    <p className="text-sm text-gray-600">
+                                        Primary SFTP/SSH User
+                                    </p>
+                                    <p className="font-semibold">
+                                        {sftpUser}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-sm text-gray-600">
+                                        Host
+                                    </p>
+                                    <p className="font-semibold">
+                                        {serverHost || 'N/A'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-sm text-gray-600">IP</p>
+                                    <p className="font-semibold">
+                                        {serverIp || 'N/A'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-sm text-gray-600">
+                                        Username
+                                    </p>
+                                    <p className="font-semibold">
+                                        {sftpUser}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-sm text-gray-600">User</p>
+                                    <p className="font-semibold">
+                                        {sftpUser}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-sm text-gray-600">
+                                        SSH terminal commando
+                                    </p>
+                                    <p className="font-mono text-sm font-semibold">
+                                        {serverIp
+                                            ? `ssh ${sftpUser}@${serverIp}`
+                                            : 'ssh user@ip'}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="rounded-lg border border-gray-200 bg-white p-4">
+                            <h3 className="mb-4 text-lg font-semibold">
+                                Access database
+                            </h3>
+                            {site.databases && site.databases.length > 0 ? (
+                                <div className="space-y-4">
+                                    {site.databases.map((db) => {
+                                        const dbUser =
+                                            db.user ||
+                                            db.username ||
+                                            db.name ||
+                                            'dbuser';
+                                        const dbPassword =
+                                            db.password || db.name || 'dbpassword';
+                                        const dbHost =
+                                            db.host || serverIp || 'host';
+                                        const dbPort = db.port
+                                            ? `:${db.port}`
+                                            : '';
+                                        const dbUrl = `mysql://${dbUser}:${dbPassword}@${dbHost}${dbPort}/${db.name}`;
+
+                                        return (
+                                            <div
+                                                key={db.id}
+                                                className="rounded-lg bg-gray-50 p-4"
+                                            >
+                                                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                                    <div>
+                                                        <p className="text-sm text-gray-600">
+                                                            Database name
+                                                        </p>
+                                                        <p className="font-mono font-semibold">
+                                                            {db.name}
+                                                        </p>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm text-gray-600">
+                                                            Username database
+                                                        </p>
+                                                        <p className="font-mono font-semibold">
+                                                            {dbUser}
+                                                        </p>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm text-gray-600">
+                                                            Password database
+                                                        </p>
+                                                        <p className="font-mono font-semibold">
+                                                            {dbPassword}
+                                                        </p>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm text-gray-600">
+                                                            Database url
+                                                        </p>
+                                                        <p className="break-all font-mono text-sm font-semibold">
+                                                            {dbUrl}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <p className="text-sm text-gray-600">
+                                    Geen databases gekoppeld aan deze site.
+                                </p>
+                            )}
+                        </div>
+                    </div>
+                )}
 
                 {/* WordPress Tab */}
                 {activeTab === 'wordpress' &&
