@@ -308,6 +308,41 @@ class PloiService
             ->json();
     }
 
+    public function createDatabaseBackup(array $data)
+    {
+        return Http::withToken($this->apiToken)
+            ->post("{$this->apiUrl}/backups/database", $data)
+            ->json();
+    }
+
+    public function listDatabaseBackups()
+    {
+        return Http::withToken($this->apiToken)
+            ->get("{$this->apiUrl}/backups/database")
+            ->json();
+    }
+
+    public function deleteSiteFileBackup($backupId)
+    {
+        return Http::withToken($this->apiToken)
+            ->delete("{$this->apiUrl}/backups/file/{$backupId}")
+            ->json();
+    }
+
+    public function deleteDatabaseBackup($backupId)
+    {
+        return Http::withToken($this->apiToken)
+            ->delete("{$this->apiUrl}/backups/database/{$backupId}")
+            ->json();
+    }
+
+    public function runDatabaseBackup($backupId)
+    {
+        return Http::withToken($this->apiToken)
+            ->post("{$this->apiUrl}/backups/database/{$backupId}/run")
+            ->json();
+    }
+
     public function getSystemUsers($serverId)
     {
         return Http::withToken($this->apiToken)

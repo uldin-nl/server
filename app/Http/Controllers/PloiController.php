@@ -250,9 +250,12 @@ class PloiController extends Controller
                 ]
             );
 
+            // Automatisch backups instellen
+            $this->setupBackupsForSite($serverId, $siteId, $databaseData['id'] ?? null, $domain);
+
             return redirect()
                 ->route('ploi.sites.show', ['serverId' => $serverId, 'siteId' => $siteId])
-                ->with('success', "Site {$domain} succesvol aangemaakt met database!");
+                ->with('success', "Site {$domain} succesvol aangemaakt met database en backups!");
         } catch (\Exception $e) {
             return back()->withErrors(['error' => $e->getMessage()]);
         }
@@ -430,11 +433,41 @@ class PloiController extends Controller
             $backupConfigurations = [];
         }
 
+        // Backups ophalen voor deze site
+        $siteBackups = [];
+        $databaseBackups = [];
+        try {
+            $allFileBackups = $this->ploi->listSiteFileBackups()['data'] ?? [];
+            $siteBackups = array_values(array_filter($allFileBackups, function ($backup) use ($siteId, $serverId) {
+                return (isset($backup['site_id']) && (int) $backup['site_id'] === (int) $siteId)
+                    || (isset($backup['server_id']) && (int) $backup['server_id'] === (int) $serverId
+                        && isset($backup['sites']) && in_array((int) $siteId, array_map('intval', $backup['sites'])));
+            }));
+        } catch (\Exception $e) {
+            $siteBackups = [];
+        }
+
+        try {
+            $allDbBackups = $this->ploi->listDatabaseBackups()['data'] ?? [];
+            $siteDatabaseIds = array_column($siteData['databases'] ?? [], 'id');
+            $databaseBackups = array_values(array_filter($allDbBackups, function ($backup) use ($siteDatabaseIds, $serverId) {
+                if (isset($backup['server_id']) && (int) $backup['server_id'] !== (int) $serverId) {
+                    return false;
+                }
+                $backupDbIds = $backup['databases'] ?? [];
+                return !empty(array_intersect(array_map('intval', $backupDbIds), array_map('intval', $siteDatabaseIds)));
+            }));
+        } catch (\Exception $e) {
+            $databaseBackups = [];
+        }
+
         return Inertia::render('Ploi/SiteDetails', [
             'site' => $siteData,
             'server' => !empty($serverPayload) ? $serverPayload : null,
             'repositories' => $repositories,
             'backupConfigurations' => $backupConfigurations,
+            'siteBackups' => $siteBackups,
+            'databaseBackups' => $databaseBackups,
         ]);
     }
 
@@ -837,6 +870,121 @@ class PloiController extends Controller
         }
     }
 
+    public function runSiteBackup($serverId, $siteId, $backupId)
+    {
+        try {
+            $response = $this->ploi->runSiteFileBackup($backupId);
+
+            if (isset($response['error'])) {
+                throw new \Exception($response['error']);
+            }
+
+            return response()->json(['success' => true, 'message' => 'Site backup gestart!']);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function runDatabaseBackup($serverId, $siteId, $backupId)
+    {
+        try {
+            $response = $this->ploi->runDatabaseBackup($backupId);
+
+            if (isset($response['error'])) {
+                throw new \Exception($response['error']);
+            }
+
+            return response()->json(['success' => true, 'message' => 'Database backup gestart!']);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function deleteSiteBackup($serverId, $siteId, $backupId)
+    {
+        try {
+            $response = $this->ploi->deleteSiteFileBackup($backupId);
+
+            if (isset($response['error'])) {
+                throw new \Exception($response['error']);
+            }
+
+            return redirect()->back()->with('success', 'Site backup verwijderd!');
+        } catch (\Exception $e) {
+            return back()->withErrors(['error' => $e->getMessage()]);
+        }
+    }
+
+    public function deleteDatabaseBackup($serverId, $siteId, $backupId)
+    {
+        try {
+            $response = $this->ploi->deleteDatabaseBackup($backupId);
+
+            if (isset($response['error'])) {
+                throw new \Exception($response['error']);
+            }
+
+            return redirect()->back()->with('success', 'Database backup verwijderd!');
+        } catch (\Exception $e) {
+            return back()->withErrors(['error' => $e->getMessage()]);
+        }
+    }
+
+    public function createSiteBackup(Request $request, $serverId, $siteId)
+    {
+        $validated = $request->validate([
+            'backup_configuration' => 'required|integer',
+            'interval' => 'required|integer',
+            'path' => 'nullable|string',
+        ]);
+
+        try {
+            $response = $this->ploi->createSiteFileBackup([
+                'backup_configuration' => $validated['backup_configuration'],
+                'server' => (int) $serverId,
+                'sites' => [(int) $siteId],
+                'interval' => $validated['interval'],
+                'path' => [
+                    (string) $siteId => $validated['path'] ?? '/',
+                ],
+            ]);
+
+            if (isset($response['error'])) {
+                throw new \Exception($response['error']);
+            }
+
+            return redirect()->back()->with('success', 'Site backup configuratie aangemaakt!');
+        } catch (\Exception $e) {
+            return back()->withErrors(['error' => $e->getMessage()]);
+        }
+    }
+
+    public function createDatabaseBackupConfig(Request $request, $serverId, $siteId)
+    {
+        $validated = $request->validate([
+            'backup_configuration' => 'required|integer',
+            'interval' => 'required|integer',
+            'database_id' => 'required|integer',
+        ]);
+
+        try {
+            $response = $this->ploi->createDatabaseBackup([
+                'backup_configuration' => $validated['backup_configuration'],
+                'server' => (int) $serverId,
+                'databases' => [$validated['database_id']],
+                'interval' => $validated['interval'],
+            ]);
+
+            if (isset($response['error'])) {
+                throw new \Exception($response['error']);
+            }
+
+            return redirect()->back()->with('success', 'Database backup configuratie aangemaakt!');
+        } catch (\Exception $e) {
+            return back()->withErrors(['error' => $e->getMessage()]);
+        }
+    }
+
     private function getWpCliPath(array $siteData): string
     {
         $systemUser = $siteData['system_user'] ?? 'ploi';
@@ -1004,6 +1152,48 @@ class PloiController extends Controller
         $runResponse = $this->ploi->runSiteFileBackup($backupId);
         if (isset($runResponse['error'])) {
             throw new \Exception($runResponse['error']);
+        }
+    }
+
+    private function setupBackupsForSite(int $serverId, int $siteId, ?int $databaseId, string $domain): void
+    {
+        try {
+            $backupConfigurations = $this->ploi->listBackupConfigurations();
+            $configurations = $backupConfigurations['data'] ?? [];
+
+            if (empty($configurations)) {
+                \Log::warning("Geen backup configuratie gevonden voor site {$domain}");
+                return;
+            }
+
+            $backupConfigurationId = $configurations[0]['id'];
+
+            // Site file backup instellen (nightly = interval 0)
+            $this->ploi->createSiteFileBackup([
+                'backup_configuration' => $backupConfigurationId,
+                'server' => $serverId,
+                'sites' => [$siteId],
+                'interval' => 0,
+                'path' => [
+                    (string) $siteId => '/',
+                ],
+            ]);
+
+            \Log::info("Site file backup ingesteld voor {$domain}");
+
+            // Database backup instellen als er een database is
+            if ($databaseId) {
+                $this->ploi->createDatabaseBackup([
+                    'backup_configuration' => $backupConfigurationId,
+                    'server' => $serverId,
+                    'databases' => [$databaseId],
+                    'interval' => 0,
+                ]);
+
+                \Log::info("Database backup ingesteld voor {$domain}");
+            }
+        } catch (\Exception $e) {
+            \Log::error("Fout bij instellen backups voor {$domain}: " . $e->getMessage());
         }
     }
 }

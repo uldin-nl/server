@@ -55,6 +55,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
         
         // Site updaten
         Route::patch('/servers/{serverId}/sites/{siteId}', [PloiController::class, 'updateSite']);
+
+        // Backup management
+        Route::post('/servers/{serverId}/sites/{siteId}/backups/site', [PloiController::class, 'createSiteBackup']);
+        Route::post('/servers/{serverId}/sites/{siteId}/backups/site/{backupId}/run', [PloiController::class, 'runSiteBackup']);
+        Route::delete('/servers/{serverId}/sites/{siteId}/backups/site/{backupId}', [PloiController::class, 'deleteSiteBackup']);
+        Route::post('/servers/{serverId}/sites/{siteId}/backups/database', [PloiController::class, 'createDatabaseBackupConfig']);
+        Route::post('/servers/{serverId}/sites/{siteId}/backups/database/{backupId}/run', [PloiController::class, 'runDatabaseBackup']);
+        Route::delete('/servers/{serverId}/sites/{siteId}/backups/database/{backupId}', [PloiController::class, 'deleteDatabaseBackup']);
     });
 });
 

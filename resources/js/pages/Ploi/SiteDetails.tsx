@@ -43,6 +43,27 @@ type BackupConfiguration = {
     driver?: string;
 };
 
+type SiteBackup = {
+    id: number;
+    site_id?: number;
+    server_id?: number;
+    interval?: number;
+    path?: string;
+    status?: string;
+    last_backup_at?: string;
+    created_at?: string;
+};
+
+type DatabaseBackup = {
+    id: number;
+    server_id?: number;
+    databases?: number[];
+    interval?: number;
+    status?: string;
+    last_backup_at?: string;
+    created_at?: string;
+};
+
 type WpPackage = {
     name: string;
     version?: string;
@@ -90,6 +111,8 @@ type Props = {
     } | null;
     repositories: Repository[];
     backupConfigurations: BackupConfiguration[];
+    siteBackups: SiteBackup[];
+    databaseBackups: DatabaseBackup[];
 };
 
 const getCsrfToken = () => {
@@ -127,6 +150,8 @@ export default function SiteDetails({
     server,
     repositories = [],
     backupConfigurations = [],
+    siteBackups = [],
+    databaseBackups = [],
 }: Props) {
     const { errors, flash } = usePage().props as any;
     const [repository, setRepository] = useState(site.repository || '');
@@ -134,7 +159,7 @@ export default function SiteDetails({
     const [envContent, setEnvContent] = useState(site.env_content || '');
     const [deployScript, setDeployScript] = useState(site.deploy_script || '');
     const [activeTab, setActiveTab] = useState<
-        'deploy' | 'env' | 'script' | 'settings' | 'ssl' | 'wordpress' | 'access'
+        'deploy' | 'env' | 'script' | 'settings' | 'ssl' | 'wordpress' | 'access' | 'backups'
     >('deploy');
     const [showRepositoryForm, setShowRepositoryForm] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -174,6 +199,19 @@ export default function SiteDetails({
 
     const [wpLoginLoading, setWpLoginLoading] = useState(false);
     const [wpLoginError, setWpLoginError] = useState<string | null>(null);
+
+    // Backup form state
+    const [showSiteBackupForm, setShowSiteBackupForm] = useState(false);
+    const [showDbBackupForm, setShowDbBackupForm] = useState(false);
+    const [newBackupConfig, setNewBackupConfig] = useState<number | ''>(
+        backupConfigurations[0]?.id ?? '',
+    );
+    const [newBackupInterval, setNewBackupInterval] = useState<number>(0);
+    const [newBackupPath, setNewBackupPath] = useState('/');
+    const [selectedDbForBackup, setSelectedDbForBackup] = useState<number | ''>(
+        site.databases?.[0]?.id ?? '',
+    );
+    const [backupLoading, setBackupLoading] = useState<number | null>(null);
 
     const serverIp = server?.ip_address || server?.ip || '';
     const serverHost = server?.host || server?.name || '';
@@ -231,6 +269,89 @@ export default function SiteDetails({
             `/ploi/servers/${site.server_id}/sites/${site.id}/certificates`,
             data,
         );
+    };
+
+    const handleCreateSiteBackup = (e: { preventDefault: () => void }) => {
+        e.preventDefault();
+        router.post(
+            `/ploi/servers/${site.server_id}/sites/${site.id}/backups/site`,
+            {
+                backup_configuration: newBackupConfig,
+                interval: newBackupInterval,
+                path: newBackupPath,
+            },
+        );
+        setShowSiteBackupForm(false);
+    };
+
+    const handleCreateDatabaseBackup = (e: { preventDefault: () => void }) => {
+        e.preventDefault();
+        router.post(
+            `/ploi/servers/${site.server_id}/sites/${site.id}/backups/database`,
+            {
+                backup_configuration: newBackupConfig,
+                interval: newBackupInterval,
+                database_id: selectedDbForBackup,
+            },
+        );
+        setShowDbBackupForm(false);
+    };
+
+    const handleRunSiteBackup = async (backupId: number) => {
+        setBackupLoading(backupId);
+        try {
+            await postJson(
+                `/ploi/servers/${site.server_id}/sites/${site.id}/backups/site/${backupId}/run`,
+                {},
+            );
+            router.reload();
+        } catch {
+            // Error handled by postJson
+        } finally {
+            setBackupLoading(null);
+        }
+    };
+
+    const handleRunDatabaseBackup = async (backupId: number) => {
+        setBackupLoading(backupId);
+        try {
+            await postJson(
+                `/ploi/servers/${site.server_id}/sites/${site.id}/backups/database/${backupId}/run`,
+                {},
+            );
+            router.reload();
+        } catch {
+            // Error handled by postJson
+        } finally {
+            setBackupLoading(null);
+        }
+    };
+
+    const handleDeleteSiteBackup = (backupId: number) => {
+        if (confirm('Weet je zeker dat je deze backup configuratie wilt verwijderen?')) {
+            router.delete(
+                `/ploi/servers/${site.server_id}/sites/${site.id}/backups/site/${backupId}`,
+            );
+        }
+    };
+
+    const handleDeleteDatabaseBackup = (backupId: number) => {
+        if (confirm('Weet je zeker dat je deze backup configuratie wilt verwijderen?')) {
+            router.delete(
+                `/ploi/servers/${site.server_id}/sites/${site.id}/backups/database/${backupId}`,
+            );
+        }
+    };
+
+    const getIntervalLabel = (interval: number) => {
+        if (interval === 0) return 'Nightly';
+        if (interval === 1440) return 'Dagelijks';
+        if (interval === 720) return 'Elke 12 uur';
+        if (interval === 480) return 'Elke 8 uur';
+        if (interval === 240) return 'Elke 4 uur';
+        if (interval === 120) return 'Elke 2 uur';
+        if (interval === 60) return 'Elk uur';
+        return `Elke ${interval} minuten`;
     };
 
     const handleFetchWpUpdates = async () => {
@@ -608,6 +729,16 @@ export default function SiteDetails({
                         }`}
                     >
                         Settings
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('backups')}
+                        className={`px-4 py-2 ${
+                            activeTab === 'backups'
+                                ? 'border-b-2 border-blue-600 text-blue-600'
+                                : 'text-gray-600'
+                        }`}
+                    >
+                        Backups
                     </button>
                 </div>
 
@@ -1664,6 +1795,379 @@ export default function SiteDetails({
                             Instellingen Opslaan
                         </button>
                     </form>
+                )}
+
+                {/* Backups Tab */}
+                {activeTab === 'backups' && (
+                    <div className="space-y-6">
+                        {/* Site File Backups */}
+                        <div className="rounded-lg border bg-white p-6">
+                            <div className="mb-4 flex items-center justify-between">
+                                <h3 className="text-lg font-semibold">
+                                    Site Backups
+                                </h3>
+                                <button
+                                    onClick={() => setShowSiteBackupForm(!showSiteBackupForm)}
+                                    className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+                                >
+                                    {showSiteBackupForm ? 'Annuleren' : 'Nieuwe Backup'}
+                                </button>
+                            </div>
+
+                            {showSiteBackupForm && (
+                                <form
+                                    onSubmit={handleCreateSiteBackup}
+                                    className="mb-4 rounded border bg-gray-50 p-4"
+                                >
+                                    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium">
+                                                Backup Configuratie
+                                            </label>
+                                            <select
+                                                value={newBackupConfig}
+                                                onChange={(e) =>
+                                                    setNewBackupConfig(
+                                                        Number(e.target.value),
+                                                    )
+                                                }
+                                                className="w-full rounded border p-2"
+                                                required
+                                            >
+                                                <option value="">Selecteer...</option>
+                                                {backupConfigurations.map((config) => (
+                                                    <option
+                                                        key={config.id}
+                                                        value={config.id}
+                                                    >
+                                                        {config.label || `Config ${config.id}`}{' '}
+                                                        ({config.driver})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium">
+                                                Interval
+                                            </label>
+                                            <select
+                                                value={newBackupInterval}
+                                                onChange={(e) =>
+                                                    setNewBackupInterval(
+                                                        Number(e.target.value),
+                                                    )
+                                                }
+                                                className="w-full rounded border p-2"
+                                            >
+                                                <option value={0}>Nightly</option>
+                                                <option value={60}>Elk uur</option>
+                                                <option value={120}>Elke 2 uur</option>
+                                                <option value={240}>Elke 4 uur</option>
+                                                <option value={480}>Elke 8 uur</option>
+                                                <option value={720}>Elke 12 uur</option>
+                                                <option value={1440}>Dagelijks</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium">
+                                                Pad
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={newBackupPath}
+                                                onChange={(e) =>
+                                                    setNewBackupPath(e.target.value)
+                                                }
+                                                className="w-full rounded border p-2"
+                                                placeholder="/"
+                                            />
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="submit"
+                                        className="mt-4 rounded bg-green-600 px-4 py-2 text-white hover:bg-green-700"
+                                    >
+                                        Backup Configuratie Aanmaken
+                                    </button>
+                                </form>
+                            )}
+
+                            {siteBackups.length === 0 ? (
+                                <p className="text-gray-500">
+                                    Geen site backups geconfigureerd.
+                                </p>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-sm">
+                                        <thead className="bg-gray-50">
+                                            <tr>
+                                                <th className="px-4 py-2">ID</th>
+                                                <th className="px-4 py-2">Interval</th>
+                                                <th className="px-4 py-2">Pad</th>
+                                                <th className="px-4 py-2">
+                                                    Laatste Backup
+                                                </th>
+                                                <th className="px-4 py-2">Acties</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {siteBackups.map((backup) => (
+                                                <tr
+                                                    key={backup.id}
+                                                    className="border-t"
+                                                >
+                                                    <td className="px-4 py-2">
+                                                        {backup.id}
+                                                    </td>
+                                                    <td className="px-4 py-2">
+                                                        {getIntervalLabel(
+                                                            backup.interval ?? 0,
+                                                        )}
+                                                    </td>
+                                                    <td className="px-4 py-2">
+                                                        {backup.path || '/'}
+                                                    </td>
+                                                    <td className="px-4 py-2">
+                                                        {backup.last_backup_at || '-'}
+                                                    </td>
+                                                    <td className="px-4 py-2">
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                onClick={() =>
+                                                                    handleRunSiteBackup(
+                                                                        backup.id,
+                                                                    )
+                                                                }
+                                                                disabled={
+                                                                    backupLoading ===
+                                                                    backup.id
+                                                                }
+                                                                className="rounded bg-green-600 px-3 py-1 text-xs text-white hover:bg-green-700 disabled:opacity-50"
+                                                            >
+                                                                {backupLoading ===
+                                                                backup.id
+                                                                    ? 'Bezig...'
+                                                                    : 'Nu Uitvoeren'}
+                                                            </button>
+                                                            <button
+                                                                onClick={() =>
+                                                                    handleDeleteSiteBackup(
+                                                                        backup.id,
+                                                                    )
+                                                                }
+                                                                className="rounded bg-red-600 px-3 py-1 text-xs text-white hover:bg-red-700"
+                                                            >
+                                                                Verwijderen
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Database Backups */}
+                        <div className="rounded-lg border bg-white p-6">
+                            <div className="mb-4 flex items-center justify-between">
+                                <h3 className="text-lg font-semibold">
+                                    Database Backups
+                                </h3>
+                                {(site.databases?.length ?? 0) > 0 && (
+                                    <button
+                                        onClick={() =>
+                                            setShowDbBackupForm(!showDbBackupForm)
+                                        }
+                                        className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+                                    >
+                                        {showDbBackupForm ? 'Annuleren' : 'Nieuwe Backup'}
+                                    </button>
+                                )}
+                            </div>
+
+                            {showDbBackupForm && (
+                                <form
+                                    onSubmit={handleCreateDatabaseBackup}
+                                    className="mb-4 rounded border bg-gray-50 p-4"
+                                >
+                                    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium">
+                                                Backup Configuratie
+                                            </label>
+                                            <select
+                                                value={newBackupConfig}
+                                                onChange={(e) =>
+                                                    setNewBackupConfig(
+                                                        Number(e.target.value),
+                                                    )
+                                                }
+                                                className="w-full rounded border p-2"
+                                                required
+                                            >
+                                                <option value="">Selecteer...</option>
+                                                {backupConfigurations.map((config) => (
+                                                    <option
+                                                        key={config.id}
+                                                        value={config.id}
+                                                    >
+                                                        {config.label || `Config ${config.id}`}{' '}
+                                                        ({config.driver})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium">
+                                                Database
+                                            </label>
+                                            <select
+                                                value={selectedDbForBackup}
+                                                onChange={(e) =>
+                                                    setSelectedDbForBackup(
+                                                        Number(e.target.value),
+                                                    )
+                                                }
+                                                className="w-full rounded border p-2"
+                                                required
+                                            >
+                                                <option value="">Selecteer...</option>
+                                                {site.databases?.map((db) => (
+                                                    <option key={db.id} value={db.id}>
+                                                        {db.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-sm font-medium">
+                                                Interval
+                                            </label>
+                                            <select
+                                                value={newBackupInterval}
+                                                onChange={(e) =>
+                                                    setNewBackupInterval(
+                                                        Number(e.target.value),
+                                                    )
+                                                }
+                                                className="w-full rounded border p-2"
+                                            >
+                                                <option value={0}>Nightly</option>
+                                                <option value={60}>Elk uur</option>
+                                                <option value={120}>Elke 2 uur</option>
+                                                <option value={240}>Elke 4 uur</option>
+                                                <option value={480}>Elke 8 uur</option>
+                                                <option value={720}>Elke 12 uur</option>
+                                                <option value={1440}>Dagelijks</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="submit"
+                                        className="mt-4 rounded bg-green-600 px-4 py-2 text-white hover:bg-green-700"
+                                    >
+                                        Database Backup Aanmaken
+                                    </button>
+                                </form>
+                            )}
+
+                            {(site.databases?.length ?? 0) === 0 ? (
+                                <p className="text-gray-500">
+                                    Geen databases gekoppeld aan deze site.
+                                </p>
+                            ) : databaseBackups.length === 0 ? (
+                                <p className="text-gray-500">
+                                    Geen database backups geconfigureerd.
+                                </p>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-sm">
+                                        <thead className="bg-gray-50">
+                                            <tr>
+                                                <th className="px-4 py-2">ID</th>
+                                                <th className="px-4 py-2">Interval</th>
+                                                <th className="px-4 py-2">
+                                                    Laatste Backup
+                                                </th>
+                                                <th className="px-4 py-2">Acties</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {databaseBackups.map((backup) => (
+                                                <tr
+                                                    key={backup.id}
+                                                    className="border-t"
+                                                >
+                                                    <td className="px-4 py-2">
+                                                        {backup.id}
+                                                    </td>
+                                                    <td className="px-4 py-2">
+                                                        {getIntervalLabel(
+                                                            backup.interval ?? 0,
+                                                        )}
+                                                    </td>
+                                                    <td className="px-4 py-2">
+                                                        {backup.last_backup_at || '-'}
+                                                    </td>
+                                                    <td className="px-4 py-2">
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                onClick={() =>
+                                                                    handleRunDatabaseBackup(
+                                                                        backup.id,
+                                                                    )
+                                                                }
+                                                                disabled={
+                                                                    backupLoading ===
+                                                                    backup.id
+                                                                }
+                                                                className="rounded bg-green-600 px-3 py-1 text-xs text-white hover:bg-green-700 disabled:opacity-50"
+                                                            >
+                                                                {backupLoading ===
+                                                                backup.id
+                                                                    ? 'Bezig...'
+                                                                    : 'Nu Uitvoeren'}
+                                                            </button>
+                                                            <button
+                                                                onClick={() =>
+                                                                    handleDeleteDatabaseBackup(
+                                                                        backup.id,
+                                                                    )
+                                                                }
+                                                                className="rounded bg-red-600 px-3 py-1 text-xs text-white hover:bg-red-700"
+                                                            >
+                                                                Verwijderen
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+
+                        {backupConfigurations.length === 0 && (
+                            <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
+                                <p className="text-yellow-800">
+                                    <strong>Let op:</strong> Je hebt nog geen backup
+                                    configuraties ingesteld in je Ploi profiel. Ga naar{' '}
+                                    <a
+                                        href="https://ploi.io/profile/backup"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-blue-600 underline"
+                                    >
+                                        Ploi Backup Settings
+                                    </a>{' '}
+                                    om een backup configuratie aan te maken.
+                                </p>
+                            </div>
+                        )}
+                    </div>
                 )}
 
                 {/* Danger Zone - alleen tonen in Settings tab */}
