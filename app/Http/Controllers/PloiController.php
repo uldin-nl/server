@@ -438,10 +438,10 @@ class PloiController extends Controller
         $databaseBackups = [];
         try {
             $allFileBackups = $this->ploi->listSiteFileBackups()['data'] ?? [];
-            $siteBackups = array_values(array_filter($allFileBackups, function ($backup) use ($siteId, $serverId) {
-                return (isset($backup['site_id']) && (int) $backup['site_id'] === (int) $siteId)
-                    || (isset($backup['server_id']) && (int) $backup['server_id'] === (int) $serverId
-                        && isset($backup['sites']) && in_array((int) $siteId, array_map('intval', $backup['sites'])));
+            $siteBackups = array_values(array_filter($allFileBackups, function ($backup) use ($siteId) {
+                // Site file backups hebben een 'site' object met 'id'
+                $backupSiteId = $backup['site']['id'] ?? $backup['site_id'] ?? null;
+                return $backupSiteId !== null && (int) $backupSiteId === (int) $siteId;
             }));
         } catch (\Exception $e) {
             $siteBackups = [];
@@ -451,11 +451,17 @@ class PloiController extends Controller
             $allDbBackups = $this->ploi->listDatabaseBackups()['data'] ?? [];
             $siteDatabaseIds = array_column($siteData['databases'] ?? [], 'id');
             $databaseBackups = array_values(array_filter($allDbBackups, function ($backup) use ($siteDatabaseIds, $serverId) {
-                if (isset($backup['server_id']) && (int) $backup['server_id'] !== (int) $serverId) {
+                // Database backups hebben een 'server' object en 'database' object
+                $backupServerId = $backup['server']['id'] ?? $backup['server_id'] ?? null;
+                if ($backupServerId !== null && (int) $backupServerId !== (int) $serverId) {
                     return false;
                 }
-                $backupDbIds = $backup['databases'] ?? [];
-                return !empty(array_intersect(array_map('intval', $backupDbIds), array_map('intval', $siteDatabaseIds)));
+                // Check of de database ID matcht
+                $backupDbId = $backup['database']['id'] ?? null;
+                if ($backupDbId !== null) {
+                    return in_array((int) $backupDbId, array_map('intval', $siteDatabaseIds));
+                }
+                return false;
             }));
         } catch (\Exception $e) {
             $databaseBackups = [];
