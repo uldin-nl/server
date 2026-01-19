@@ -34,6 +34,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/servers/{serverId}/sites/{siteId}/wordpress', [PloiController::class, 'installWordPress']);
         Route::post('/servers/{serverId}/sites/{siteId}/wordpress/updates', [PloiController::class, 'getWordPressUpdates']);
         Route::post('/servers/{serverId}/sites/{siteId}/wordpress/updates/run', [PloiController::class, 'runWordPressUpdates']);
+        Route::post('/servers/{serverId}/sites/{siteId}/wordpress/login', [PloiController::class, 'getWordPressLoginUrl']);
 
         // Deploy
         Route::post('/servers/{serverId}/sites/{siteId}/deploy', [PloiController::class, 'deploy']);

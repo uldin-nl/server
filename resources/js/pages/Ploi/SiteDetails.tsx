@@ -172,6 +172,9 @@ export default function SiteDetails({
         number | ''
     >(backupConfigurations[0]?.id ?? '');
 
+    const [wpLoginLoading, setWpLoginLoading] = useState(false);
+    const [wpLoginError, setWpLoginError] = useState<string | null>(null);
+
     const serverIp = server?.ip_address || server?.ip || '';
     const serverHost = server?.host || server?.name || '';
     const sftpUser = site.system_user || 'ploi';
@@ -328,6 +331,28 @@ export default function SiteDetails({
             );
         } finally {
             setWpLoading(false);
+        }
+    };
+
+    const handleWpLogin = async () => {
+        setWpLoginError(null);
+        setWpLoginLoading(true);
+        try {
+            const data = await postJson<{ url: string; user: string }>(
+                `/ploi/servers/${site.server_id}/sites/${site.id}/wordpress/login`,
+                {},
+            );
+            if (data.url) {
+                window.open(data.url, '_blank');
+            }
+        } catch (error) {
+            setWpLoginError(
+                error instanceof Error
+                    ? error.message
+                    : 'Login link genereren mislukt',
+            );
+        } finally {
+            setWpLoginLoading(false);
         }
     };
 
@@ -724,6 +749,34 @@ export default function SiteDetails({
                                 <div className="flex flex-wrap items-center justify-between gap-4">
                                     <div>
                                         <h3 className="text-lg font-semibold">
+                                            WordPress admin
+                                        </h3>
+                                        <p className="text-sm text-gray-600">
+                                            Open het WordPress dashboard met
+                                            automatische login.
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={handleWpLogin}
+                                        disabled={wpLoginLoading}
+                                        className="rounded bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700 disabled:opacity-50"
+                                    >
+                                        {wpLoginLoading
+                                            ? 'Bezig...'
+                                            : 'Open wp-admin'}
+                                    </button>
+                                </div>
+                                {wpLoginError && (
+                                    <p className="mt-3 text-sm text-red-600">
+                                        {wpLoginError}
+                                    </p>
+                                )}
+                            </div>
+
+                            <div className="rounded-lg border border-gray-200 bg-white p-4">
+                                <div className="flex flex-wrap items-center justify-between gap-4">
+                                    <div>
+                                        <h3 className="text-lg font-semibold">
                                             WordPress updates
                                         </h3>
                                         <p className="text-sm text-gray-600">
@@ -737,8 +790,8 @@ export default function SiteDetails({
                                         className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
                                     >
                                         {wpLoading
-                                            ? '⏳ Bezig...'
-                                            : '🔍 Check updates'}
+                                            ? 'Bezig...'
+                                            : 'Check updates'}
                                     </button>
                                 </div>
                                 {wpError && (

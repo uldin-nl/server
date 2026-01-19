@@ -752,6 +752,60 @@ class PloiController extends Controller
         }
     }
 
+    public function getWordPressLoginUrl(Request $request, $serverId, $siteId)
+    {
+        try {
+            $site = $this->ploi->getSite($serverId, $siteId);
+            $siteData = $site['data'] ?? [];
+            $domain = $siteData['domain'] ?? '';
+            $path = $this->resolveWpCliPath($serverId, $siteData);
+            $pathArg = escapeshellarg($path);
+
+            // Get first administrator username
+            $usersResponse = $this->ploi->runWpCliCommand(
+                $serverId,
+                "user list --role=administrator --field=user_login --path={$pathArg}"
+            );
+
+            $adminUser = trim($usersResponse['message'] ?? '');
+            if (empty($adminUser)) {
+                throw new \Exception('Geen administrator gebruiker gevonden.');
+            }
+
+            // Take first user if multiple returned
+            $adminUser = explode("\n", $adminUser)[0];
+            $adminUserArg = escapeshellarg($adminUser);
+
+            // Generate magic login link
+            $loginResponse = $this->ploi->runWpCliCommand(
+                $serverId,
+                "login create {$adminUserArg} --url-only --path={$pathArg}"
+            );
+
+            $loginUrl = trim($loginResponse['message'] ?? '');
+
+            if (empty($loginUrl) || !filter_var($loginUrl, FILTER_VALIDATE_URL)) {
+                // Check if wp-cli-login-command is not installed
+                if (stripos($loginResponse['message'] ?? '', 'is not a registered wp command') !== false) {
+                    throw new \Exception('wp-cli-login-command is niet geïnstalleerd. Installeer met: wp package install aaemnnosttv/wp-cli-login-command');
+                }
+                throw new \Exception('Kon geen login URL genereren: ' . ($loginResponse['message'] ?? 'onbekende fout'));
+            }
+
+            return response()->json([
+                'url' => $loginUrl,
+                'user' => $adminUser,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('WP login URL generation failed', [
+                'server_id' => $serverId,
+                'site_id' => $siteId,
+                'message' => $e->getMessage(),
+            ]);
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
     public function deleteSite($serverId, $siteId)
     {
         try {
